@@ -18,7 +18,7 @@ Briefly describe your game: genre, tone, core loop, target platform. Two or thre
 
 ## Arbor toolkit
 
-This project uses [Arbor](https://github.com/arborsmith/arbor). Claude's Arbor-specific knowledge is loaded automatically from the plugin's docs:
+This project uses [Arbor](https://github.com/ArborSmith/arbor). Claude's Arbor-specific knowledge is loaded automatically from the plugin's docs:
 
 @Plugins/Arbor/CLAUDE.md
 
@@ -74,4 +74,4 @@ L_Interiors    streaming sub-level (houses, caves)
 
 - **Plugin API**: `@Plugins/Arbor/CLAUDE.md` (imported above)
 - **MCP tools**: expose yourself to `ue5_actors`, `ue5_blueprint`, `ue5_terrain`, etc. via the `ue5-bridge` MCP server — see Arbor's bridge README for setup.
-- **Report bugs in Arbor itself**: call the `report_issue` MCP tool — it files to [arborsmith/arbor](https://github.com/arborsmith/arbor/issues).
+- **Report bugs in Arbor itself**: call the `report_issue` MCP tool — it files to [ArborSmith/arbor](https://github.com/ArborSmith/arbor/issues).

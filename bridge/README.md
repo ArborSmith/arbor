@@ -2,7 +2,7 @@
 
 MCP (Model Context Protocol) server that bridges Claude to a running Unreal Engine 5 editor via the Remote Control API.
 
-Part of the [Arbor toolkit](https://github.com/arborsmith/arbor) — see the root README for the full picture.
+Part of the [Arbor toolkit](https://github.com/ArborSmith/arbor) — see the root README for the full picture.
 
 ## Install
 
@@ -29,7 +29,7 @@ Or in `~/.claude/settings.json`:
       "args": ["/absolute/path/to/bridge/dist/index.js"],
       "env": {
         "UE5_REMOTE_PORT": "30010",
-        "GITHUB_TRACKER_REPO": "arborsmith/arbor",
+        "GITHUB_TRACKER_REPO": "ArborSmith/arbor",
         "ARBOR_TOOLS": ""
       }
     }

@@ -22,6 +22,8 @@ Open source, early access — APIs unstable. The 11 stable MCP categories (actor
 
 > ⚠️ **Security note** — the `ue5_run_python` tool executes arbitrary Python inside the UE5 editor with full filesystem + process access. Treat any Claude/MCP session you run against Arbor the same way you'd treat running code from a peer reviewer. Don't expose the Remote Control API port (30010) outside localhost.
 
+> ⚠️ **Issue filing is public by default.** The `report_issue` MCP tool files bug reports on whatever `GITHUB_TRACKER_REPO` you configure (default: `ArborSmith/arbor` — public). Claude is instructed (via the tool schema and `CLAUDE.md`) to substitute project-specific identifiers (asset paths, Blueprint/class/level/character names, IP references, absolute filesystem paths) with generic placeholders before submitting — but if your UE5 project is confidential, **review the generated issue before it's sent**, or point `GITHUB_TRACKER_REPO` at a tracker you control to keep issues private.
+
 ### 1 — Install the plugin
 
 Clone this repo **directly into your UE5 project's `Plugins/` directory**:
@@ -29,13 +31,13 @@ Clone this repo **directly into your UE5 project's `Plugins/` directory**:
 **PowerShell / Windows:**
 ```powershell
 cd <YourProject>\Plugins
-git clone https://github.com/arborsmith/arbor.git Arbor
+git clone https://github.com/ArborSmith/arbor.git Arbor
 ```
 
 **bash / macOS / Linux:**
 ```bash
 cd <YourProject>/Plugins
-git clone https://github.com/arborsmith/arbor.git Arbor
+git clone https://github.com/ArborSmith/arbor.git Arbor
 ```
 
 The repo itself IS the plugin — `Arbor.uplugin` lives at the root. The `bridge/` and `project-template/` folders are maintainer extras that UE5 ignores (no `.uplugin` in them).
@@ -73,7 +75,7 @@ npm run build
       "args": ["/absolute/path/to/YourProject/Plugins/Arbor/bridge/dist/index.js"],
       "env": {
         "UE5_REMOTE_PORT": "30010",
-        "GITHUB_TRACKER_REPO": "arborsmith/arbor"
+        "GITHUB_TRACKER_REPO": "ArborSmith/arbor"
       }
     }
   }
