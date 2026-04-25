@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bridge:
+    name: Bridge — build + test (no UE5)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: bridge/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: TypeScript build
+        run: npm run build
+
+      # Tests are integration tests against a live UE5 editor — they skip
+      # when the editor is unreachable, which is always true in CI. We still
+      # run them to catch any test that doesn't honor describe.runIf().
+      - name: Run tests (UE5 unreachable — should skip)
+        run: npm test
+        env:
+          ARBOR_TOOLS: stable

@@ -1,0 +1,43 @@
+# Generated artifacts and local-only working files. Final assets that
+# need to ship live under .github/ or the appropriate source tree.
+
+# UE5 plugin build artifacts
+Binaries/
+Build/
+Intermediate/
+Saved/
+.vs/
+.claude/
+*.sln
+*.suo
+
+# Python
+**/__pycache__/
+*.pyc
+
+# Bridge (TypeScript / Node)
+bridge/node_modules/
+bridge/dist/
+bridge/.env
+bridge/.env.local
+bridge/*.log
+
+# Local MCP config (contains secrets)
+.mcp.json
+**/.mcp.json
+
+# Private overlay extension hook (not part of public repo)
+bridge/src/extensions.local.ts
+bridge/src/extensions.local.js
+
+# Icon-generation working dir (ComfyUI scripts + scale-test artifacts;
+# final assets live under .github/)
+.icon-gen/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

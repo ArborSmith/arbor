@@ -1,0 +1,44 @@
+name: Feature request
+description: Missing capability or improvement idea
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component
+      options:
+        - plugin (UE5 C++ / Python)
+        - bridge (MCP / TypeScript)
+        - both
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's missing
+      description: What capability do you wish Arbor had?
+      placeholder: e.g. "arbor.layout has no corridor builder for connecting two rooms"
+    validations:
+      required: true
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use case
+      description: What were you trying to accomplish?
+      placeholder: "Building a dungeon level with interconnected rooms — every connection currently requires manually placed walls."
+    validations:
+      required: false
+
+  - type: textarea
+    id: signature
+    attributes:
+      label: Suggested signature (optional)
+      description: If you have a Python or MCP tool signature in mind, paste it here
+      render: python
+      placeholder: "arbor.layout.make_corridor(start_pos, end_pos, width=300, height=400)"
+    validations:
+      required: false

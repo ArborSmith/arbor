@@ -1,0 +1,29 @@
+{
+  "name": "@arborsmith/ue5-bridge",
+  "version": "0.1.0",
+  "description": "MCP server bridging Claude to the Unreal Engine 5 editor via the Remote Control API. Part of the Arbor toolkit.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arborsmith/arbor.git",
+    "directory": "bridge"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0",
+    "vitest": "^3.0.0"
+  }
+}

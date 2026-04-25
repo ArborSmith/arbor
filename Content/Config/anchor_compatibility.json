@@ -1,0 +1,68 @@
+[
+	{
+		"from_type": "wall_snap",
+		"to_type": "wall_connector",
+		"hint": "wall along floor edge",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "surface",
+		"to_type": "snap_point",
+		"hint": "object on surface",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "wall_connector",
+		"to_type": "wall_connector",
+		"hint": "wall-to-wall corner joint",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "floor_edge",
+		"to_type": "wall_edge",
+		"hint": "object facing floor edge (perpendicular)",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "floor_edge",
+		"to_type": "snap_point",
+		"hint": "object at edge center",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "wall_edge",
+		"to_type": "wall_edge",
+		"hint": "two walls face-to-face",
+		"relationship": "facing"
+	},
+	{
+		"from_type": "door",
+		"to_type": "door",
+		"hint": "door-to-door alignment",
+		"relationship": "facing"
+	},
+	{
+		"from_type": "path_connect",
+		"to_type": "path_connect",
+		"hint": "road segment continuation",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "road_edge",
+		"to_type": "snap_point",
+		"hint": "object along road side",
+		"relationship": "adjacent"
+	},
+	{
+		"from_type": "door_opening",
+		"to_type": "door_insert",
+		"hint": "door asset placed in wall opening",
+		"relationship": "insert"
+	},
+	{
+		"from_type": "window_opening",
+		"to_type": "window_insert",
+		"hint": "window asset placed in wall opening",
+		"relationship": "insert"
+	}
+]

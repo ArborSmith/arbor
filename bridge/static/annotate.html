@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Annotate Screenshot</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a1a; color: #eee; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  .toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: #252525; border-bottom: 1px solid #333; flex-shrink: 0; }
+  .toolbar label { font-size: 13px; color: #aaa; }
+  .tool-group { display: flex; gap: 4px; }
+  .tool-btn { padding: 6px 14px; border: 1px solid #444; border-radius: 4px; background: #333; color: #ddd; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+  .tool-btn:hover { background: #444; }
+  .tool-btn.active { background: #5a5aff; border-color: #7a7aff; color: #fff; }
+  .color-btn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #555; cursor: pointer; transition: border-color 0.15s; }
+  .color-btn.active { border-color: #fff; box-shadow: 0 0 6px rgba(255,255,255,0.4); }
+  .separator { width: 1px; height: 28px; background: #444; }
+  input[type="range"] { width: 80px; accent-color: #5a5aff; }
+  .canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; background: #111; }
+  canvas { position: absolute; cursor: crosshair; }
+  #send-btn { padding: 6px 20px; border: none; border-radius: 4px; background: #2d8a4e; color: #fff; cursor: pointer; font-size: 13px; font-weight: 600; transition: background 0.15s; }
+  #send-btn:hover { background: #36a85c; }
+  #send-btn:disabled { background: #555; cursor: default; }
+  .status { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); padding: 24px 40px; border-radius: 8px; font-size: 18px; display: none; z-index: 100; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="tool-group">
+    <button class="tool-btn active" data-tool="freehand">Freehand</button>
+    <button class="tool-btn" data-tool="arrow">Arrow</button>
+  </div>
+
+  <div class="separator"></div>
+
+  <label>Color</label>
+  <div class="tool-group">
+    <div class="color-btn active" data-color="#ff3333" style="background:#ff3333"></div>
+    <div class="color-btn" data-color="#ffdd33" style="background:#ffdd33"></div>
+    <div class="color-btn" data-color="#33aaff" style="background:#33aaff"></div>
+    <div class="color-btn" data-color="#33ff66" style="background:#33ff66"></div>
+    <div class="color-btn" data-color="#ffffff" style="background:#ffffff"></div>
+    <div class="color-btn" data-color="#111111" style="background:#111111; border-color:#666"></div>
+  </div>
+
+  <div class="separator"></div>
+
+  <label>Size</label>
+  <input type="range" id="stroke-width" min="2" max="12" value="4">
+
+  <div class="separator"></div>
+
+  <button class="tool-btn" id="undo-btn">Undo</button>
+  <button class="tool-btn" id="redo-btn">Redo</button>
+  <button class="tool-btn" id="clear-btn">Clear</button>
+
+  <div style="flex:1"></div>
+
+  <button id="send-btn">Send to Claude</button>
+</div>
+
+<div class="canvas-wrap">
+  <canvas id="bg-canvas"></canvas>
+  <canvas id="draw-canvas"></canvas>
+</div>
+
+<div class="status" id="status"></div>
+
+<script>
+(function() {
+  const params = new URLSearchParams(location.search);
+  const imagePath = params.get('image');
+  if (!imagePath) { document.body.innerHTML = '<p style="padding:40px">No image parameter provided.</p>'; return; }
+
+  const bgCanvas = document.getElementById('bg-canvas');
+  const drawCanvas = document.getElementById('draw-canvas');
+  const bgCtx = bgCanvas.getContext('2d');
+  const drawCtx = drawCanvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+
+  let currentTool = 'freehand';
+  let currentColor = '#ff3333';
+  let strokeWidth = 4;
+  let drawing = false;
+  let undoStack = [];
+  let redoStack = [];
+  let arrowStart = null;
+
+  // Load screenshot
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = function() {
+    bgCanvas.width = drawCanvas.width = img.width;
+    bgCanvas.height = drawCanvas.height = img.height;
+    bgCtx.drawImage(img, 0, 0);
+    saveState();
+  };
+  img.src = '/api/image?path=' + encodeURIComponent(imagePath);
+
+  function saveState() {
+    undoStack.push(drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height));
+    redoStack = [];
+    if (undoStack.length > 50) undoStack.shift();
+  }
+
+  function restoreState(state) {
+    drawCtx.putImageData(state, 0, 0);
+  }
+
+  // Canvas coordinates
+  function getPos(e) {
+    const rect = drawCanvas.getBoundingClientRect();
+    const scaleX = drawCanvas.width / rect.width;
+    const scaleY = drawCanvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  // Drawing
+  drawCanvas.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    drawing = true;
+    const pos = getPos(e);
+
+    if (currentTool === 'freehand') {
+      drawCtx.beginPath();
+      drawCtx.moveTo(pos.x, pos.y);
+      drawCtx.strokeStyle = currentColor;
+      drawCtx.lineWidth = strokeWidth;
+      drawCtx.lineCap = 'round';
+      drawCtx.lineJoin = 'round';
+    } else if (currentTool === 'arrow') {
+      arrowStart = pos;
+    }
+  });
+
+  drawCanvas.addEventListener('mousemove', function(e) {
+    if (!drawing) return;
+    const pos = getPos(e);
+
+    if (currentTool === 'freehand') {
+      drawCtx.lineTo(pos.x, pos.y);
+      drawCtx.stroke();
+    } else if (currentTool === 'arrow' && arrowStart) {
+      // Preview: restore last state and draw preview arrow
+      if (undoStack.length > 0) restoreState(undoStack[undoStack.length - 1]);
+      drawArrow(drawCtx, arrowStart.x, arrowStart.y, pos.x, pos.y, currentColor, strokeWidth);
+    }
+  });
+
+  drawCanvas.addEventListener('mouseup', function(e) {
+    if (!drawing) return;
+    drawing = false;
+
+    if (currentTool === 'arrow' && arrowStart) {
+      const pos = getPos(e);
+      if (undoStack.length > 0) restoreState(undoStack[undoStack.length - 1]);
+      drawArrow(drawCtx, arrowStart.x, arrowStart.y, pos.x, pos.y, currentColor, strokeWidth);
+      arrowStart = null;
+    }
+
+    saveState();
+  });
+
+  drawCanvas.addEventListener('mouseleave', function() {
+    if (drawing) {
+      drawing = false;
+      if (currentTool === 'arrow' && arrowStart) {
+        arrowStart = null;
+        if (undoStack.length > 0) restoreState(undoStack[undoStack.length - 1]);
+      } else {
+        saveState();
+      }
+    }
+  });
+
+  function drawArrow(ctx, x1, y1, x2, y2, color, width) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 5) return;
+
+    const headLen = Math.min(len * 0.3, Math.max(16, width * 4));
+    const angle = Math.atan2(dy, dx);
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Shaft
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    // Arrowhead
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+  }
+
+  // Tool selection
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.tool-btn[data-tool]').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentTool = btn.dataset.tool;
+    });
+  });
+
+  // Color selection
+  document.querySelectorAll('.color-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.color-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentColor = btn.dataset.color;
+    });
+  });
+
+  // Stroke width
+  document.getElementById('stroke-width').addEventListener('input', function(e) {
+    strokeWidth = parseInt(e.target.value);
+  });
+
+  // Undo
+  document.getElementById('undo-btn').addEventListener('click', function() {
+    if (undoStack.length <= 1) return;
+    redoStack.push(undoStack.pop());
+    restoreState(undoStack[undoStack.length - 1]);
+  });
+
+  // Redo
+  document.getElementById('redo-btn').addEventListener('click', function() {
+    if (redoStack.length === 0) return;
+    var state = redoStack.pop();
+    undoStack.push(state);
+    restoreState(state);
+  });
+
+  // Clear
+  document.getElementById('clear-btn').addEventListener('click', function() {
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    saveState();
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'z') { e.preventDefault(); document.getElementById('undo-btn').click(); }
+    if (e.ctrlKey && e.key === 'y') { e.preventDefault(); document.getElementById('redo-btn').click(); }
+    if (e.key === 'f') { document.querySelector('[data-tool="freehand"]').click(); }
+    if (e.key === 'a') { document.querySelector('[data-tool="arrow"]').click(); }
+  });
+
+  // Send to Claude
+  document.getElementById('send-btn').addEventListener('click', function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    // Composite both canvases
+    var outCanvas = document.createElement('canvas');
+    outCanvas.width = bgCanvas.width;
+    outCanvas.height = bgCanvas.height;
+    var outCtx = outCanvas.getContext('2d');
+    outCtx.drawImage(bgCanvas, 0, 0);
+    outCtx.drawImage(drawCanvas, 0, 0);
+
+    outCanvas.toBlob(function(blob) {
+      fetch('/api/submit', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.success) {
+            statusEl.textContent = 'Sent to Claude!';
+            statusEl.style.display = 'block';
+            setTimeout(function() { window.close(); }, 1500);
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Send to Claude';
+            alert('Failed to send: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Send to Claude';
+          alert('Failed to send: ' + err.message);
+        });
+    }, 'image/jpeg', 0.92);
+  });
+
+  // Fit canvas to viewport
+  function fitCanvas() {
+    var wrap = document.querySelector('.canvas-wrap');
+    var w = wrap.clientWidth, h = wrap.clientHeight;
+    var cw = bgCanvas.width, ch = bgCanvas.height;
+    if (!cw || !ch) return;
+    var scale = Math.min(w / cw, h / ch, 1);
+    var sw = Math.round(cw * scale), sh = Math.round(ch * scale);
+    bgCanvas.style.width = drawCanvas.style.width = sw + 'px';
+    bgCanvas.style.height = drawCanvas.style.height = sh + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+  img.addEventListener('load', function() { setTimeout(fitCanvas, 10); });
+})();
+</script>
+</body>
+</html>
