@@ -1052,7 +1052,6 @@ void SArborChatWidget::StartClaudeProcess(const FString& ResumeSessionId)
 	FPlatformProcess::WritePipe(StdInWritePipe, InitMsg);
 
 	FString WorkDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
-	FString ClaudePath = TEXT("claude");
 	FString Args = TEXT("--print --output-format stream-json --input-format stream-json --verbose");
 
 	// Permission handling: plan mode uses restricted permissions, edit mode skips all permissions
@@ -1081,9 +1080,25 @@ void SArborChatWidget::StartClaudeProcess(const FString& ResumeSessionId)
 		Args += FString::Printf(TEXT(" --resume %s"), *ResumeSessionId);
 	}
 
+	FString LaunchBinary = TEXT("claude");
+	FString LaunchArgs = Args;
+
+#if PLATFORM_WINDOWS
+	// CreateProcessW does not resolve PATHEXT (.exe / .cmd / .bat), so
+	// `claude` alone fails when Claude Code is installed via npm — its
+	// executable is `claude.cmd`, found by cmd.exe but invisible to a raw
+	// CreateProcessW call. Symptom: in-editor chat says "claude not on
+	// PATH" while `claude` works fine from a regular cmd prompt. Route
+	// through cmd.exe so its PATHEXT lookup runs first. /s + the outer
+	// quotes ensure cmd strips exactly one quote pair, leaving any
+	// argument-internal quotes (like --allowedTools "Read Glob ...") intact.
+	LaunchBinary = TEXT("cmd.exe");
+	LaunchArgs = FString::Printf(TEXT("/s /c \"claude %s\""), *Args);
+#endif
+
 	ClaudeProcess = FPlatformProcess::CreateProc(
-		*ClaudePath,
-		*Args,
+		*LaunchBinary,
+		*LaunchArgs,
 		false,      // bLaunchDetached
 		true,       // bLaunchHidden
 		true,       // bLaunchReallyHidden
@@ -1109,7 +1124,7 @@ void SArborChatWidget::StartClaudeProcess(const FString& ResumeSessionId)
 	{
 		bProcessRunning = false;
 		SetStatus(TEXT(""));
-		AddMessage(EArborMessageType::System, TEXT("Failed to start Claude. Make sure 'claude' is on your PATH."));
+		AddMessage(EArborMessageType::System, TEXT("Failed to start Claude. Make sure the Claude Code CLI is installed and on your PATH (claude / claude.exe / claude.cmd)."));
 		FinalizeCurrentMessage();
 	}
 }
