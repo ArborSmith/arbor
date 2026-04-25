@@ -7,6 +7,22 @@ const execFileAsync = promisify(execFile);
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
+//
+// IMPORTANT — GitHub issues are PUBLIC. Before filling any field below,
+// sanitize project-specific identifiers and replace them with generic
+// placeholders. The maintainers do not need your real names to fix Arbor
+// bugs, and you should not assume your project is intended to be public.
+//
+//   Substitute:                     With:
+//   /Game/Levels/MyForestRealm  →   /Game/Levels/MyLevel
+//   BP_DragonRiderHero          →   BP_TestCharacter / BP_MyCharacter
+//   AHexCrawlController         →   AMyController
+//   D:/Studios/MyGame/...       →   <ProjectRoot>/...
+//   "the dragon's combat AI"    →   "an AI character's combat behavior"
+//
+// Keep the technical content (which Arbor API was called, expected vs actual
+// behavior, error traceback structure) — strip the project-specific naming
+// and storyline context.
 
 export const reportIssueSchema = {
   type: z
@@ -19,7 +35,10 @@ export const reportIssueSchema = {
     .string()
     .describe(
       "Clear description of the bug or missing feature. " +
-        'E.g. "snap_to_ground corrupts actor rotation when sweep fallback triggers."'
+        'E.g. "snap_to_ground corrupts actor rotation when sweep fallback triggers." ' +
+        "IMPORTANT: substitute project-specific identifiers (asset paths, Blueprint/" +
+        "class/level/character names, IP/storyline references) with generic " +
+        "placeholders like /Game/MyAssets/SM_Cube, BP_MyCharacter, MyLevel."
     ),
   module: z
     .string()
@@ -34,7 +53,10 @@ export const reportIssueSchema = {
     .optional()
     .describe(
       "What you were trying to accomplish when you encountered this issue. " +
-        'E.g. "Building a dungeon level with interconnected rooms."'
+        "Describe in generic terms — the maintainers do not need your real " +
+        "project context to fix Arbor bugs. " +
+        'E.g. "Building a multi-room blockout with a navmesh and a patrolling AI" ' +
+        '— NOT "Setting up the Dragon Lord boss arena for ProjectShadowfall."'
     ),
   suggested_signature: z
     .string()
@@ -47,11 +69,21 @@ export const reportIssueSchema = {
   error_message: z
     .string()
     .optional()
-    .describe("Error message or traceback observed. Most relevant for bug type."),
+    .describe(
+      "Error message or traceback observed. Most relevant for bug type. " +
+        "Strip absolute filesystem paths (replace with <ProjectRoot>/...) and " +
+        "any project-specific class names that appear in the trace."
+    ),
   steps_to_reproduce: z
     .string()
     .optional()
-    .describe("Steps to reproduce the bug. Most relevant for bug type."),
+    .describe(
+      "Steps to reproduce the bug. Most relevant for bug type. " +
+        "Use generic example identifiers (BP_TestCharacter, /Game/MyAssets/SM_Test) " +
+        "rather than your real project's asset names. A minimal repro that uses " +
+        "fresh placeholder assets is more useful than one that requires the " +
+        "maintainers to mentally substitute every identifier."
+    ),
 };
 
 // ---------------------------------------------------------------------------
