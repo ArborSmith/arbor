@@ -22,7 +22,12 @@ Open source, early access — APIs unstable. The 11 stable MCP categories (actor
 
 > ⚠️ **Security note** — the `ue5_run_python` tool executes arbitrary Python inside the UE5 editor with full filesystem + process access. Treat any Claude/MCP session you run against Arbor the same way you'd treat running code from a peer reviewer. Don't expose the Remote Control API port (30010) outside localhost.
 
-> ⚠️ **Issue filing is public by default.** The `report_issue` MCP tool files bug reports on whatever `GITHUB_TRACKER_REPO` you configure (default: `ArborSmith/arbor` — public). Claude is instructed (via the tool schema and `CLAUDE.md`) to substitute project-specific identifiers (asset paths, Blueprint/class/level/character names, IP references, absolute filesystem paths) with generic placeholders before submitting — but if your UE5 project is confidential, **review the generated issue before it's sent**, or point `GITHUB_TRACKER_REPO` at a tracker you control to keep issues private.
+> ⚠️ **Issue filing is public by default.** The `report_issue` MCP tool files bug reports on whatever `GITHUB_TRACKER_REPO` you configure (default: `ArborSmith/arbor` — public). Two-layer guard before anything ships:
+>
+> 1. Claude is instructed (via the tool schema and `CLAUDE.md`) to substitute project-specific identifiers (asset paths, Blueprint/class/level/character names, IP references, absolute filesystem paths) with generic placeholders before submitting.
+> 2. The bridge opens a **local browser-based review UI** showing the rendered title and body, with editable fields and a generic-leak scanner. Click Submit to file, Cancel to abort. You are the final checkpoint.
+>
+> Bypass the review UI for headless/CI contexts with `ARBOR_ISSUE_REVIEW=skip`. Point `GITHUB_TRACKER_REPO` at a tracker you control to keep issues private.
 
 ### 1 — Install the plugin
 
