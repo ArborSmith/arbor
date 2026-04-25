@@ -83,6 +83,8 @@ Result drives which categories `index.ts` registers.
 
 `report_issue` MCP tool creates a GitHub issue via the `gh` CLI in the repo named by `GITHUB_TRACKER_REPO` env var (default: `ArborSmith/arbor`). Requires `gh` to be installed and authenticated.
 
+**Mandatory human review before send.** The tool spins up a local HTTP server (`issue-review-server.ts` + `static/issue-review.html`) on a random localhost port, opens the user's default browser to a review page, and blocks until the user clicks Submit or Cancel. Submitted edits to title/body win. Bypass for headless/CI contexts: `ARBOR_ISSUE_REVIEW=skip`. The review UI runs a generic client-side leak scanner (absolute paths, emails, IPs) — project-specific naming still relies on Claude's pre-submit sanitization (per the schema descriptions in `tools/core/report-issue.ts`).
+
 ## Setup
 
 ### UE5 side (one-time)

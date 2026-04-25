@@ -1,8 +1,23 @@
 import { z } from "zod";
-import { execFile } from "node:child_process";
+import { execFile, exec } from "node:child_process";
 import { promisify } from "node:util";
+import { startIssueReviewServer } from "../../issue-review-server.js";
 
 const execFileAsync = promisify(execFile);
+
+// Spawn the platform's URL handler. Best-effort — failure to auto-open is
+// not fatal; the URL is also logged to stderr so the user can click it.
+function openInBrowser(url: string): void {
+  let cmd: string;
+  if (process.platform === "win32") cmd = `start "" "${url}"`;
+  else if (process.platform === "darwin") cmd = `open "${url}"`;
+  else cmd = `xdg-open "${url}"`;
+  exec(cmd, (err) => {
+    if (err) {
+      console.error(`[ue5-bridge] Could not auto-open browser: ${err.message}`);
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -129,7 +144,7 @@ async function createGithubIssue(
     params.description.length > 80
       ? params.description.slice(0, 77).replace(/\s+\S*$/, "") + "..."
       : params.description;
-  const title = `${prefix}${moduleTag} ${shortDesc}`;
+  let title = `${prefix}${moduleTag} ${shortDesc}`;
 
   // Build body (GitHub-flavored Markdown)
   const bodyLines: string[] = [];
@@ -161,8 +176,30 @@ async function createGithubIssue(
 
   bodyLines.push("---", "*Reported automatically by Claude via ue5-bridge MCP.*");
 
-  const body = bodyLines.join("\n");
+  let body = bodyLines.join("\n");
   const label = params.type === "bug" ? "bug" : "feature-request";
+
+  // Human review checkpoint. Default ON. Set ARBOR_ISSUE_REVIEW=skip to bypass
+  // (useful for headless / CI contexts). Returning "cancel" aborts the file.
+  if ((process.env.ARBOR_ISSUE_REVIEW || "").toLowerCase() !== "skip") {
+    console.error(`[ue5-bridge] Opening issue review UI; awaiting user confirmation...`);
+    try {
+      const { url, result } = startIssueReviewServer({ repo, title, body });
+      const reviewUrl = await url;
+      console.error(`[ue5-bridge] Review at: ${reviewUrl}`);
+      openInBrowser(reviewUrl);
+      const review = await result;
+      if (review.action === "cancel") {
+        return { sent: false, message: "User cancelled the issue submission via the review UI." };
+      }
+      // User-edited values win
+      title = review.title ?? title;
+      body = review.body ?? body;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { sent: false, message: `Issue review failed: ${msg}` };
+    }
+  }
 
   console.error(`[ue5-bridge] Creating GitHub issue in ${repo}`);
 

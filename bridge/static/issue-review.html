@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review Arbor issue</title>
+<style>
+  body {
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    max-width: 920px;
+    margin: 2em auto;
+    padding: 0 1.5em 4em;
+    color: #1f2328;
+    background: #fff;
+  }
+  h1 { font-size: 1.35em; margin-bottom: 0.4em; }
+  .sub { color: #57606a; margin-bottom: 1.5em; font-size: 0.95em; }
+  .repo { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; background: #eaeef2; padding: 1px 6px; border-radius: 3px; }
+  .banner { padding: 12px 16px; border-radius: 6px; margin-bottom: 1.25em; line-height: 1.4; }
+  .banner.warn { background: #fff8c5; border: 1px solid #d4a72c; }
+  .banner.danger { background: #ffebe9; border: 1px solid #cf222e; }
+  .banner ul { margin: 0.5em 0 0; padding-left: 1.5em; }
+  .banner code { background: rgba(0,0,0,0.08); padding: 1px 5px; border-radius: 3px; }
+  .field { margin-bottom: 1em; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 0.92em; }
+  input, textarea {
+    width: 100%; padding: 8px 10px;
+    border: 1px solid #d0d7de; border-radius: 4px;
+    font-family: inherit; font-size: 0.95em;
+    box-sizing: border-box; background: #fff; color: #1f2328;
+  }
+  input:focus, textarea:focus { outline: 2px solid #0969da; outline-offset: -1px; border-color: #0969da; }
+  textarea {
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    min-height: 380px; line-height: 1.45; resize: vertical;
+  }
+  .buttons { display: flex; gap: 12px; margin-top: 1.5em; align-items: center; }
+  button { padding: 9px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.95em; border: 1px solid; }
+  button.primary { background: #1f883d; color: #fff; border-color: #1a7c34; }
+  button.primary:hover { background: #1a7c34; }
+  button.primary:disabled { background: #94d3a2; border-color: #94d3a2; cursor: not-allowed; }
+  button.secondary { background: #f6f8fa; color: #1f2328; border-color: #d0d7de; }
+  button.secondary:hover { background: #f0f3f6; }
+  .hint { color: #57606a; font-size: 0.88em; margin-left: auto; }
+  .done { text-align: center; padding: 4em 1em; font-size: 1.15em; color: #1f883d; }
+  .done.cancelled { color: #57606a; }
+</style>
+</head>
+<body>
+<div id="app">Loading…</div>
+<script>
+"use strict";
+
+// Generic safety scanner: catches things almost-always considered leaks
+// regardless of project. Project-specific names (e.g. parent project IP)
+// require human review — that's why this whole UI exists.
+const LEAK_PATTERNS = [
+  { name: "Absolute Windows path",  re: /\b[A-Z]:[\\/][\w\s.\-\\/]{2,}/g },
+  { name: "Unix /home or /Users path", re: /\/(?:home|Users|root)\/[\w.\-]+(?:\/[\w.\-]+)*/g },
+  { name: "Email address",          re: /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g },
+  { name: "IPv4 address",           re: /\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b/g },
+];
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]
+  ));
+}
+
+function scanForLeaks(text) {
+  const hits = [];
+  for (const p of LEAK_PATTERNS) {
+    p.re.lastIndex = 0;
+    let m;
+    while ((m = p.re.exec(text)) !== null) {
+      hits.push({ name: p.name, match: m[0] });
+      if (hits.length >= 50) return hits;
+    }
+  }
+  return hits;
+}
+
+async function load() {
+  const res = await fetch("/api/issue");
+  if (!res.ok) {
+    document.getElementById("app").textContent = "Failed to load issue payload.";
+    return;
+  }
+  render(await res.json());
+}
+
+function render(data) {
+  document.getElementById("app").innerHTML = `
+    <h1>Review Arbor issue before sending</h1>
+    <div class="sub">
+      Filing target: <span class="repo">${escapeHtml(data.repo)}</span> &nbsp;·&nbsp;
+      Issues are public. Edit anything you don't want public, then click Submit. Cancel aborts and sends nothing.
+    </div>
+
+    <div class="banner warn">
+      <strong>Heads up:</strong> Arbor instructs Claude to substitute project-specific names with placeholders before invoking <code>report_issue</code>. This page is your final human checkpoint — you are the last line of defense before this content becomes public.
+    </div>
+
+    <div id="leak-banner"></div>
+
+    <div class="field">
+      <label for="title">Title</label>
+      <input id="title" type="text" value="${escapeHtml(data.title)}">
+    </div>
+
+    <div class="field">
+      <label for="body">Body (Markdown)</label>
+      <textarea id="body" spellcheck="false">${escapeHtml(data.body)}</textarea>
+    </div>
+
+    <div class="buttons">
+      <button class="primary" id="submit">Submit to GitHub</button>
+      <button class="secondary" id="cancel">Cancel</button>
+      <span class="hint">You can close this tab after either action.</span>
+    </div>
+  `;
+
+  document.getElementById("submit").addEventListener("click", submit);
+  document.getElementById("cancel").addEventListener("click", cancel);
+  document.getElementById("title").addEventListener("input", scanCurrent);
+  document.getElementById("body").addEventListener("input", scanCurrent);
+  scanCurrent();
+}
+
+function scanCurrent() {
+  const title = document.getElementById("title").value;
+  const body = document.getElementById("body").value;
+  const hits = [...scanForLeaks(title), ...scanForLeaks(body)];
+  const banner = document.getElementById("leak-banner");
+  if (hits.length === 0) {
+    banner.innerHTML = "";
+    return;
+  }
+  const items = hits.slice(0, 12).map(h =>
+    `<li><code>${escapeHtml(h.match)}</code> — ${escapeHtml(h.name)}</li>`
+  ).join("");
+  const more = hits.length > 12 ? `<li>…and ${hits.length - 12} more</li>` : "";
+  banner.innerHTML = `
+    <div class="banner danger">
+      <strong>Possible leaks detected (${hits.length}):</strong> these patterns commonly indicate identifiers you don't want in a public issue. Review and edit, or click Cancel.
+      <ul>${items}${more}</ul>
+    </div>
+  `;
+}
+
+let posting = false;
+async function post(action) {
+  if (posting) return;
+  posting = true;
+  document.getElementById("submit").disabled = true;
+  const title = document.getElementById("title").value;
+  const body = document.getElementById("body").value;
+  try {
+    await fetch("/api/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, title, body }),
+    });
+  } catch (e) { /* server may close immediately on success */ }
+  if (action === "confirm") {
+    show("Issue submitted to GitHub. You can close this tab.", false);
+  } else {
+    show("Cancelled. Nothing was sent. You can close this tab.", true);
+  }
+}
+
+function submit() { post("confirm"); }
+function cancel() { post("cancel"); }
+
+function show(msg, cancelled) {
+  document.getElementById("app").innerHTML =
+    `<div class="done${cancelled ? " cancelled" : ""}">${escapeHtml(msg)}</div>`;
+}
+
+load();
+</script>
+</body>
+</html>
