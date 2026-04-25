@@ -81,7 +81,7 @@ Result drives which categories `index.ts` registers.
 
 ## Reporting bugs
 
-`report_issue` MCP tool creates a GitHub issue via the `gh` CLI in the repo named by `GITHUB_TRACKER_REPO` env var (default: `arborsmith/arbor`). Requires `gh` to be installed and authenticated.
+`report_issue` MCP tool creates a GitHub issue via the `gh` CLI in the repo named by `GITHUB_TRACKER_REPO` env var (default: `ArborSmith/arbor`). Requires `gh` to be installed and authenticated.
 
 ## Setup
 
@@ -110,7 +110,7 @@ Or in `~/.claude/settings.json`:
       "args": ["/absolute/path/to/bridge/dist/index.js"],
       "env": {
         "UE5_REMOTE_PORT": "30010",
-        "GITHUB_TRACKER_REPO": "arborsmith/arbor",
+        "GITHUB_TRACKER_REPO": "ArborSmith/arbor",
         "ARBOR_TOOLS": ""
       }
     }
