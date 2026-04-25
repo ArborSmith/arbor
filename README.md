@@ -17,7 +17,8 @@ Open source, early access — APIs unstable. The 11 stable MCP categories (actor
 ### Requirements
 - **Unreal Engine 5.4+** with a **C++ project** (Arbor is an editor C++ plugin — Blueprint-only projects won't compile it)
 - **Node.js 20+** (older Node versions produce cryptic errors)
-- **Claude Code CLI** on your `PATH` (or Claude Desktop with MCP support)
+- **Claude Code CLI** installed and on your **system or user `PATH`** — not just a shell-specific profile (`$PROFILE.ps1`, `.bashrc`). UE5 inherits `PATH` from the OS environment, not from your terminal session.
+  - **Windows: log out / log back in (or restart) after installing Claude Code.** Windows doesn't reliably propagate `PATH` updates to already-running processes, including the Explorer that spawns UE5. If `claude` works fine in your terminal but the in-editor Arbor Chat reports `Claude process exited (code 1)`, this is almost always the cause. Verify with a *fresh* `cmd` window: `where claude` should show a path. If it does, UE5 will see it too.
 - **`gh` CLI** installed and authenticated (only if you want `report_issue` to file GitHub issues)
 
 > ⚠️ **Security note** — the `ue5_run_python` tool executes arbitrary Python inside the UE5 editor with full filesystem + process access. Treat any Claude/MCP session you run against Arbor the same way you'd treat running code from a peer reviewer. Don't expose the Remote Control API port (30010) outside localhost.
@@ -179,6 +180,22 @@ Override at the bridge level with `ARBOR_TOOLS=stable | all | <comma-list>`.
 - **`CLAUDE.md`** — Plugin API reference. Read this if you're extending Arbor or want Claude to write good Arbor code.
 - **`bridge/CLAUDE.md`** — Bridge tool reference + setup details.
 - **`CONTRIBUTING.md`** — Dev setup, test running, PR guidelines.
+
+## Troubleshooting
+
+### Arbor Chat shows `Claude process exited (code 1)` immediately
+
+Most common cause on Windows: `claude` is on `PATH` for your terminal session but not for UE5's process tree. The fix is almost always **log out / log back in (or restart Windows)** after installing Claude Code, then relaunch UE5. See the Requirements section for why.
+
+Verify the fix worked: open a **fresh** `cmd` window (not one that was open before the install) and run `where claude`. If it shows a path, UE5 will see it too. If it shows nothing, the directory containing `claude.exe` (or `claude.cmd`) isn't on your system/user `PATH` — add it via *System Properties → Environment Variables* (don't put it in just `$PROFILE.ps1`), then log out / back in.
+
+### `import arbor.registry` fails on editor startup
+
+`Edit → Plugins`, confirm both **Arbor** and **Python Editor Script Plugin** are enabled, then close UE5 completely (kill any leftover `UnrealEditor.exe` in Task Manager) and reopen. The Python plugin needs a clean restart to pick up Arbor's `Content/Python/` directory.
+
+### Bridge tools missing in Claude (`ue5_pcg`, etc. don't show up)
+
+Experimental categories are gated. Open `Edit → Project Settings → Plugins → Arbor → Experimental Features`, flip the master switch, enable the per-feature toggle for the category you want, then **restart the bridge** (the bridge queries flags once at boot, not per-request).
 
 ## License
 
