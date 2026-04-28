@@ -12,32 +12,63 @@
 #include "LandscapeLayerInfoObject.h"
 #include "Runtime/Launch/Resources/Version.h"
 
-// UE 5.5 introduced LandscapeEditLayer.h + ULandscapeEditLayerBase + ALandscape::GetEditLayer().
-// Before 5.5, edit layers lived on ALandscape::LandscapeLayers as FLandscapeLayer structs.
-// We hide the split behind GetFirstEditLayerGuid() below.
-#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
-#define ARBOR_HAS_UE55_EDIT_LAYERS 1
-#include "LandscapeEditLayer.h"
+// Edit-layer API timeline (verified against engine headers):
+//   5.4:    ALandscape::LandscapeLayers (TArray<FLandscapeLayer>) -- direct array access.
+//   5.5:    ALandscape::LandscapeLayers_DEPRECATED -- same struct, renamed UPROPERTY,
+//           ULandscapeEditLayerBase exists but ALandscape::GetEditLayer(int) does NOT.
+//   5.6+:   ALandscape::GetEditLayer(int) -> ULandscapeEditLayerBase*, plus
+//           ULandscapeEditLayerBase::GetGuid(). LandscapeLayers_DEPRECATED still
+//           present but accessors are preferred.
+//
+//   ULandscapeLayerInfoObject::SetLayerName / GetLayerName landed in 5.7;
+//   before that the LayerName UPROPERTY is read/written directly.
+//
+// We hide both splits behind helpers below.
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6)
+	#define ARBOR_HAS_GET_EDIT_LAYER 1
+	#include "LandscapeEditLayer.h"
 #else
-#define ARBOR_HAS_UE55_EDIT_LAYERS 0
+	#define ARBOR_HAS_GET_EDIT_LAYER 0
+#endif
+
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 7)
+	#define ARBOR_HAS_LAYER_NAME_ACCESSORS 1
+#else
+	#define ARBOR_HAS_LAYER_NAME_ACCESSORS 0
+#endif
+
+// ALandscape::Import(...) final argument signature:
+//   5.4:   const TArray<FLandscapeLayer>* (nullable pointer)
+//   5.5+:  const TArray<FLandscapeLayer>& (reference; pass empty array for none)
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
+	#define ARBOR_LANDSCAPE_IMPORT_BY_REF 1
+#else
+	#define ARBOR_LANDSCAPE_IMPORT_BY_REF 0
 #endif
 
 namespace
 {
 	// Returns the GUID of the first (base) edit layer on a landscape, or an empty
-	// FGuid if the landscape has no edit layers. Abstracts over the UE 5.4 vs 5.5+
-	// edit-layer API change so builders compile cleanly against either version.
+	// FGuid if the landscape has no edit layers. Abstracts over the 5.4 / 5.5 /
+	// 5.6+ API splits so builders compile cleanly against any of them.
 	FGuid GetFirstEditLayerGuid(ALandscape* LandscapeActor)
 	{
 		if (!LandscapeActor)
 		{
 			return FGuid();
 		}
-#if ARBOR_HAS_UE55_EDIT_LAYERS
+#if ARBOR_HAS_GET_EDIT_LAYER
 		if (ULandscapeEditLayerBase* BaseLayer = LandscapeActor->GetEditLayer(0))
 		{
 			return BaseLayer->GetGuid();
 		}
+#elif ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION == 5
+		PRAGMA_DISABLE_DEPRECATION_WARNINGS
+		if (LandscapeActor->LandscapeLayers_DEPRECATED.Num() > 0)
+		{
+			return LandscapeActor->LandscapeLayers_DEPRECATED[0].Guid;
+		}
+		PRAGMA_ENABLE_DEPRECATION_WARNINGS
 #else
 		if (LandscapeActor->LandscapeLayers.Num() > 0)
 		{
@@ -47,13 +78,11 @@ namespace
 		return FGuid();
 	}
 
-	// ULandscapeLayerInfoObject gained SetLayerName()/GetLayerName() accessors in
-	// UE 5.5. On 5.4 the LayerName UPROPERTY is read/written directly.
 	void SetLayerInfoName(ULandscapeLayerInfoObject* LayerInfo, FName Name)
 	{
 		if (!LayerInfo) return;
-#if ARBOR_HAS_UE55_EDIT_LAYERS
-		LayerInfo->SetLayerName(Name, /*bModifyPackage=*/false);
+#if ARBOR_HAS_LAYER_NAME_ACCESSORS
+		LayerInfo->SetLayerName(Name, /*bInModify=*/false);
 #else
 		LayerInfo->LayerName = Name;
 #endif
@@ -62,7 +91,7 @@ namespace
 	FName GetLayerInfoName(ULandscapeLayerInfoObject* LayerInfo)
 	{
 		if (!LayerInfo) return NAME_None;
-#if ARBOR_HAS_UE55_EDIT_LAYERS
+#if ARBOR_HAS_LAYER_NAME_ACCESSORS
 		return LayerInfo->GetLayerName();
 #else
 		return LayerInfo->LayerName;
@@ -270,9 +299,9 @@ ALandscape* ULandscapeBuilder::CreateLandscape(
 	TMap<FGuid, TArray<FLandscapeImportLayerInfo>> MaterialLayerDataPerLayers;
 	MaterialLayerDataPerLayers.Add(FGuid(), TArray<FLandscapeImportLayerInfo>());
 
-	// Import — final edit-layers argument: 5.4 expects `const TArray<FLandscapeLayer>*`
+	// Import -- final edit-layers argument: 5.4 expects `const TArray<FLandscapeLayer>*`
 	// (pointer, nullptr allowed to mean "no layers"); 5.5+ takes the array directly.
-#if ARBOR_HAS_UE55_EDIT_LAYERS
+#if ARBOR_LANDSCAPE_IMPORT_BY_REF
 	TArray<FLandscapeLayer> EmptyLayers;
 	Landscape->Import(
 		FGuid::NewGuid(),
