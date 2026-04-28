@@ -6,6 +6,16 @@
 #include "Misc/DateTime.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Runtime/Launch/Resources/Version.h"
+
+// EAutomationTestFlags::FilterMask (a value inside the enum) was replaced with
+// the free constant EAutomationTestFlags_FilterMask in UE 5.5 when the enum was
+// converted to enum-class.
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5)
+	#define ARBOR_AUTOMATION_FILTER_MASK EAutomationTestFlags_FilterMask
+#else
+	#define ARBOR_AUTOMATION_FILTER_MASK EAutomationTestFlags::FilterMask
+#endif
 
 namespace ArborAutomationToolsInternal
 {
@@ -43,7 +53,7 @@ namespace ArborAutomationToolsInternal
 	 */
 	static void EnsureWideTestFilter()
 	{
-		FAutomationTestFramework::Get().SetRequestedTestFilter(EAutomationTestFlags::FilterMask);
+		FAutomationTestFramework::Get().SetRequestedTestFilter(ARBOR_AUTOMATION_FILTER_MASK);
 	}
 
 	/** Collect every valid test info whose full path matches Filter. */

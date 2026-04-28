@@ -4,7 +4,6 @@
 	"VersionName": "0.1",
 	"FriendlyName": "Arbor",
 	"Description": "AI-driven gamedev toolkit — BehaviorTree, Blueprint, EQS, Terrain, PCG builders plus a Python utility library that lets Claude build game content directly in the editor.",
-	"EngineVersion": "5.4.0",
 	"Category": "AI",
 	"CreatedBy": "Arbor",
 	"CanContainContent": true,
