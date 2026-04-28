@@ -338,7 +338,7 @@ export const blueprintTool: CategoryTool = {
       const contentPath = (p.content_path as string) || "/Game/Blueprints";
       const bpJson: Record<string, unknown> = {
         name: p.name,
-        parent_class: "ArborAIController",
+        parent_class: "AIController",
       };
       const defaults: Record<string, unknown> = {};
       if (p.behavior_tree_path) defaults.DefaultBehaviorTree = p.behavior_tree_path;
