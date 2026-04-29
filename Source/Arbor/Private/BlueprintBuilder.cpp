@@ -1971,6 +1971,13 @@ UEdGraphNode* UBlueprintBuilder::CreateEventNode(
 	{
 		EventFunc = AActor::StaticClass()->FindFunctionByName(FName(TEXT("ReceiveEndPlay")));
 	}
+	if (!EventFunc && EventName == TEXT("OnPossess"))
+	{
+		// AController exposes the BP-overridable "On Possess" event (display name)
+		// as UFUNCTION(BlueprintImplementableEvent) void ReceivePossess(APawn*).
+		// See Engine/Source/Runtime/Engine/Classes/GameFramework/Controller.h.
+		EventFunc = ParentClass->FindFunctionByName(FName(TEXT("ReceivePossess")));
+	}
 
 	if (!EventFunc)
 	{
