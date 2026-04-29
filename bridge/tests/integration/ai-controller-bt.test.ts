@@ -1,15 +1,14 @@
 /**
- * AI Controller + Behavior Tree CDO integration test.
+ * AI Controller + Behavior Tree integration test.
  *
- * Reproduces the bug where a Character BP has AIControllerClass set on its CDO
- * and the AIController BP has DefaultBehaviorTree set on its CDO, but at PIE
- * runtime the BT editor reports "no actor has this BehaviorTree".
+ * Verifies the full chain end-to-end:
+ *   BT → AIController BP (parent: AIController, event graph wires
+ *        OnPossess → RunBehaviorTree(BTAsset)) → Character BP (CDO has
+ *        AIControllerClass + AutoPossessAI) → spawn → PIE → BT is running
  *
- * The test builds the full chain:
- *   BT → AIController BP → Character BP → spawn → PIE → verify BT runs
- *
- * It also inspects CDO values via Python to verify they actually stuck (not
- * just appearing correct in the editor UI).
+ * Also inspects the AIController BP event graph via Python to verify the
+ * Event OnPossess → RunBehaviorTree wiring + the BTAsset pin literal
+ * survived the BlueprintBuilder round-trip.
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
@@ -104,10 +103,10 @@ describe.runIf(editorRunning)(
       expect(btPath).toBeDefined();
     });
 
-    // Now uses base AAIController as parent (no AArborAIController exists in C++).
-    // behavior_tree_path/blackboard_path are still passed but base AAIController
-    // has no DefaultBehaviorTree CDO property so they're effectively ignored.
-    it("creates an AIController BP with DefaultBehaviorTree on CDO", async () => {
+    // Parent class is base AAIController. The BT is wired via the BP's event graph
+    // (Event OnPossess → RunBehaviorTree(BTAsset)) — see create_ai_controller in
+    // bridge/src/registry/blueprint.ts.
+    it("creates an AIController BP with BT wired on OnPossess", async () => {
       const name = uniqueName();
       const result = (await blueprintTool.actions.create_ai_controller({
         name,
@@ -135,109 +134,66 @@ describe.runIf(editorRunning)(
 
     // ── Step 2: Inspect CDO values via Python ────────────────────────
 
-    // SKIP: DefaultBehaviorTree is on the imagined AArborAIController; base AAIController has no such CDO property.
-    it.skip("verifies AIController BP parent class is ArborAIController (not plain AIController)", async () => {
-      const data = await pyQuery(`
-import unreal
-
-bp = unreal.EditorAssetLibrary.load_asset("${aicPath}")
-if not bp:
-    _write_result({"success": False, "error": "Could not load AIController BP"})
-else:
-    gen_class = bp.generated_class()
-    # Walk up to the native (non-BP-generated) parent to find what ResolveParentClass picked
-    parent = gen_class.static_class() if gen_class else None
-    parent_name = "None"
-    parent_path = "None"
-    if gen_class:
-        # generated_class().get_name() is e.g. "IntTest_xxx_C"
-        # The CDO's class hierarchy reveals the native parent
-        cdo = unreal.get_default_object(gen_class)
-        cdo_class = cdo.get_class()
-        # Walk up the class chain to find the first non-BlueprintGenerated class
-        current = cdo_class
-        while current:
-            name = current.get_name()
-            if not name.endswith("_C"):
-                parent_name = name
-                parent_path = current.get_path_name()
-                break
-            # Move to super: get the CDO parent's class
-            # In Python API, we can check via unreal.SystemLibrary
-            try:
-                # Use the UClass parent chain via field iteration
-                parent_path_name = current.get_path_name()
-                # Go up: the parent is the native class the BP extends
-                break
-            except:
-                break
-
-        # Simpler approach: check if the CDO has DefaultBehaviorTree property
-        has_bt_prop = hasattr(cdo, "default_behavior_tree")
-        try:
-            cdo.get_editor_property("default_behavior_tree")
-            has_bt_prop = True
-        except:
-            has_bt_prop = False
-
-    _write_result({
-        "success": True,
-        "bp_name": bp.get_name(),
-        "generated_class": gen_class.get_name() if gen_class else "None",
-        "parent_class": parent_name,
-        "parent_path": parent_path,
-        "cdo_has_default_behavior_tree": has_bt_prop,
-    })
-`);
-
-      expect(data.success).toBe(true);
-      // The CDO MUST have the DefaultBehaviorTree property.
-      // This only exists on ArborAIController, not the base AAIController.
-      // If create_ai_controller uses parent_class "AIController" → ResolveParentClass maps to
-      // AAIController → CDO won't have DefaultBehaviorTree → OnPossess won't call RunBehaviorTree.
+    it("verifies AIController BP parent class is AIController", async () => {
+      const q = (await blueprintTool.actions.query({ asset_path: aicPath })) as {
+        success: boolean;
+        parent_class?: string;
+      };
+      expect(q.success).toBe(true);
+      // Parent must be UE's built-in AIController (no custom AArborAIController).
       expect(
-        data.cdo_has_default_behavior_tree,
-        `AIController BP CDO should have DefaultBehaviorTree property (parent should be ` +
-          `ArborAIController, not plain AIController). Parent resolved to: "${data.parent_class}"`
-      ).toBe(true);
+        q.parent_class,
+        `AIController BP parent should be "AIController" but resolved to "${q.parent_class}"`
+      ).toBe("AIController");
     });
 
-    // SKIP: DefaultBehaviorTree is on the imagined AArborAIController; base AAIController has no such CDO property.
-    it.skip("verifies DefaultBehaviorTree is set on AIController CDO", async () => {
-      const data = await pyQuery(`
-import unreal
+    it("verifies AIController BP event graph runs the BT on OnPossess", async () => {
+      type EGNode = {
+        guid: string;
+        type: string;
+        event?: string;
+        function?: string;
+        defaults?: Record<string, string>;
+        pins?: Array<{ name: string; default_object?: string; default?: string }>;
+      };
+      type EGConn = { from: string; from_pin: string; to: string; to_pin: string };
+      const q = (await blueprintTool.actions.query({ asset_path: aicPath })) as {
+        success: boolean;
+        event_graph?: { nodes: EGNode[]; connections: EGConn[] };
+      };
+      expect(q.success).toBe(true);
+      expect(q.event_graph, "AIController BP must have an event graph").toBeDefined();
 
-bp = unreal.EditorAssetLibrary.load_asset("${aicPath}")
-if not bp or not bp.generated_class():
-    _write_result({"success": False, "error": "Could not load AIController BP or no generated class"})
-else:
-    cdo = unreal.get_default_object(bp.generated_class())
-    bt = None
-    bb = None
-    try:
-        bt = cdo.get_editor_property("default_behavior_tree")
-    except:
-        pass
-    try:
-        bb = cdo.get_editor_property("default_blackboard")
-    except:
-        pass
+      const nodes = q.event_graph!.nodes;
+      const conns = q.event_graph!.connections;
 
-    _write_result({
-        "success": True,
-        "cdo_class": cdo.get_class().get_name(),
-        "has_default_bt_property": bt is not None or hasattr(cdo, "default_behavior_tree"),
-        "default_behavior_tree": bt.get_path_name() if bt else None,
-        "default_blackboard": bb.get_path_name() if bb else None,
-    })
-`);
+      const eventNode = nodes.find(
+        (n) => n.type === "Event" && n.event === "ReceivePossess"
+      );
+      const runBTNode = nodes.find(
+        (n) => n.type === "CallFunction" && n.function === "RunBehaviorTree"
+      );
+      expect(eventNode, `expected an Event "ReceivePossess" node; got: ${JSON.stringify(nodes.map(n => ({type: n.type, event: n.event, function: n.function})))}`)
+        .toBeDefined();
+      expect(runBTNode, "expected a CallFunction RunBehaviorTree node").toBeDefined();
 
-      expect(data.success).toBe(true);
-      expect(
-        data.default_behavior_tree,
-        `CDO.DefaultBehaviorTree should be set to "${btPath}" but was ${data.default_behavior_tree}. ` +
-          `If null, SetPropertyFromJson likely couldn't find the property on the base AAIController class.`
-      ).toBeTruthy();
+      const wired = conns.some(
+        (c) =>
+          c.from === eventNode!.guid &&
+          c.from_pin === "then" &&
+          c.to === runBTNode!.guid &&
+          c.to_pin === "execute"
+      );
+      expect(wired, `expected ReceivePossess.then -> RunBehaviorTree.execute connection; got conns: ${JSON.stringify(conns)}`)
+        .toBe(true);
+
+      // BTAsset pin must exist on the RunBehaviorTree call. Verifying the pin's
+      // *value* via this query isn't reliable: the C++ query only exposes
+      // Pin->DefaultValue (string), not Pin->DefaultObject (the asset reference).
+      // The PIE smoke test below is the source of truth for runtime correctness —
+      // a wrong/null BTAsset produces a controller with no BrainComponent.
+      const btPin = runBTNode!.pins?.find((p) => p.name === "BTAsset");
+      expect(btPin, "RunBehaviorTree call should expose a BTAsset pin").toBeDefined();
     });
 
     it("verifies AIControllerClass is set on Character CDO", async () => {
@@ -282,9 +238,7 @@ else:
 
     // ── Step 3: PIE runtime verification ─────────────────────────────
 
-    // SKIP: DefaultBehaviorTree is on the imagined AArborAIController; base AAIController has no such CDO property.
-    // Without auto-RunBehaviorTree on possess, there is no way to wire BT-on-possess through pure data.
-    it.skip(
+    it(
       "spawns the character, starts PIE, and verifies BT is running",
       async () => {
         // Place the character in the level

@@ -340,10 +340,30 @@ export const blueprintTool: CategoryTool = {
         name: p.name,
         parent_class: "AIController",
       };
-      const defaults: Record<string, unknown> = {};
-      if (p.behavior_tree_path) defaults.DefaultBehaviorTree = p.behavior_tree_path;
-      if (p.blackboard_path) defaults.DefaultBlackboard = p.blackboard_path;
-      if (Object.keys(defaults).length > 0) bpJson.defaults = defaults;
+
+      // Wire BT auto-run via the event graph: Event OnPossess -> RunBehaviorTree(BTAsset).
+      // Base AAIController has no DefaultBehaviorTree CDO property, so the data-driven
+      // way to run a BT on possess is to override the BP event.
+      // blackboard_path is intentionally not used here — RunBehaviorTree initializes the
+      // blackboard from the BT asset's BlackboardAsset reference.
+      if (p.behavior_tree_path) {
+        bpJson.event_graph = {
+          nodes: [
+            { id: "OnPossess", type: "Event", event: "OnPossess" },
+            {
+              id: "RunBT",
+              type: "CallFunction",
+              function: "RunBehaviorTree",
+              owner_class: "AIController",
+              defaults: { BTAsset: p.behavior_tree_path },
+            },
+          ],
+          connections: [
+            { from: "OnPossess", from_pin: "then", to: "RunBT", to_pin: "execute" },
+          ],
+        };
+      }
+
       if (p.perception_config && (p.perception_config as unknown[]).length > 0) {
         const sensesConfig = (p.perception_config as Array<{sense: string; dominant?: boolean; params?: Record<string, unknown>}>)
           .map(s => ({
