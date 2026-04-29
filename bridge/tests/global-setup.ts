@@ -58,6 +58,33 @@ function loadEnvFile(): void {
 const RC_INI_SECTION =
   "[/Script/RemoteControlCommon.RemoteControlSettings]";
 const RC_PORT_KEY = "RemoteControlHttpServerPort";
+const RC_AUTOSTART_KEY = "bAutoStartWebServer";
+const RC_PYTHON_KEY = "bEnableRemotePythonExecution";
+// UE 5.5+ split console-command execution into its own permission
+// (RemoteControlSettings.h). 5.4 only checks bEnableRemotePythonExecution;
+// 5.5+ also gates `py <script>` on this flag.
+const RC_CONSOLE_KEY = "bAllowConsoleCommandRemoteExecution";
+
+/**
+ * Set or replace `key=value` inside an INI file's named section. Adds the
+ * section if missing, replaces an existing key, or appends a new key under
+ * the existing section.
+ */
+function setIniKey(
+  content: string,
+  section: string,
+  key: string,
+  value: string
+): string {
+  const keyRegex = new RegExp(`^(${key}\\s*=\\s*)\\S+`, "m");
+  if (keyRegex.test(content)) {
+    return content.replace(keyRegex, `$1${value}`);
+  }
+  if (content.includes(section)) {
+    return content.replace(section, `${section}\n${key}=${value}`);
+  }
+  return content + `\n${section}\n${key}=${value}\n`;
+}
 
 function patchRemoteControlConfig(
   projectPath: string,
@@ -73,34 +100,23 @@ function patchRemoteControlConfig(
   configPath = join(configDir, "RemoteControl.ini");
   configBackupPath = join(configDir, "RemoteControl.ini.testbackup");
 
-  // Back up the existing config if it exists
+  // Back up the existing config if it exists. We patch BOTH the port and the
+  // auto-start flag — projects that ship with `bAutoStartWebServer=False`
+  // (e.g. the dev project's hardened DefaultRemoteControl.ini) would otherwise
+  // load the plugin but never open the port, making the poll time out.
   if (existsSync(configPath)) {
     copyFileSync(configPath, configBackupPath);
-    // Patch the port in the existing file
     let content = readFileSync(configPath, "utf-8");
-    const portRegex = new RegExp(
-      `^(${RC_PORT_KEY}\\s*=\\s*)\\d+`,
-      "m"
-    );
-    if (portRegex.test(content)) {
-      content = content.replace(portRegex, `$1${port}`);
-    } else if (content.includes(RC_INI_SECTION)) {
-      // Section exists but no port key — add it after the section header
-      content = content.replace(
-        RC_INI_SECTION,
-        `${RC_INI_SECTION}\n${RC_PORT_KEY}=${port}`
-      );
-    } else {
-      // No section at all — append
-      content += `\n${RC_INI_SECTION}\n${RC_PORT_KEY}=${port}\n`;
-    }
+    content = setIniKey(content, RC_INI_SECTION, RC_PORT_KEY, String(port));
+    content = setIniKey(content, RC_INI_SECTION, RC_AUTOSTART_KEY, "True");
+    content = setIniKey(content, RC_INI_SECTION, RC_PYTHON_KEY, "True");
+    content = setIniKey(content, RC_INI_SECTION, RC_CONSOLE_KEY, "True");
     writeFileSync(configPath, content, "utf-8");
   } else {
-    // No config file — create one with just the port setting
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       configPath,
-      `${RC_INI_SECTION}\n${RC_PORT_KEY}=${port}\n`,
+      `${RC_INI_SECTION}\n${RC_PORT_KEY}=${port}\n${RC_AUTOSTART_KEY}=True\n${RC_PYTHON_KEY}=True\n${RC_CONSOLE_KEY}=True\n`,
       "utf-8"
     );
     configBackupPath = null; // Nothing to restore — just delete on cleanup

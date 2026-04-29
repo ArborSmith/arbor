@@ -7,7 +7,11 @@ Build/
 Intermediate/
 Saved/
 .vs/
-.claude/
+# Ignore everything inside .claude/ except shipped skills.
+# Excluding the dir itself (`.claude/`) would block re-inclusion below —
+# git can't unignore children of an ignored parent.
+.claude/*
+!.claude/skills/
 *.sln
 *.suo
 
@@ -21,6 +25,7 @@ bridge/dist/
 bridge/.env
 bridge/.env.local
 bridge/*.log
+bridge/tests/e2e/.results/
 
 # Local MCP config (contains secrets)
 .mcp.json
