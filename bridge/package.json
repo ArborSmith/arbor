@@ -15,7 +15,8 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "vitest run tests/e2e"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
