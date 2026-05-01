@@ -1,4 +1,5 @@
 #include "ArborActorTools.h"
+#include "ArborPropertyJson.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Editor.h"
@@ -588,6 +589,46 @@ static TArray<AActor*> ParseIgnoreActors(const TArray<TSharedPtr<FJsonValue>>* I
 		}
 	}
 	return Result;
+}
+
+// ============================================================================
+// SetActorProperty (reflection-based UPROPERTY edit)
+// ============================================================================
+
+FString UArborActorTools::SetActorProperty(const FString& ActorName, const FString& PropertyName, const FString& ValueJson)
+{
+	using namespace Arbor::Json;
+
+	AActor* Actor = UArborActorTools::FindActorByAnyIdentifier(ActorName);
+	if (!Actor)
+	{
+		return JsonError(FString::Printf(TEXT("Actor '%s' not found in current level"), *ActorName));
+	}
+
+	TSharedPtr<FJsonValue> Parsed;
+	if (!ParseJsonValue(ValueJson, Parsed))
+	{
+		return JsonError(FString::Printf(TEXT("Could not parse JSON value: %s"), *ValueJson));
+	}
+
+	Actor->Modify();
+	FString Error;
+	if (!ApplyJsonToProperty(Actor, PropertyName, Parsed, Error))
+	{
+		return JsonError(Error);
+	}
+	Actor->PostEditChange();
+
+	if (UPackage* Package = Actor->GetOutermost())
+	{
+		Package->MarkPackageDirty();
+	}
+
+	const TSharedRef<FJsonObject> Extra = MakeShared<FJsonObject>();
+	Extra->SetStringField(TEXT("actor_path"), Actor->GetPathName());
+	Extra->SetStringField(TEXT("actor_label"), Actor->GetActorLabel());
+	Extra->SetStringField(TEXT("property_name"), PropertyName);
+	return MakeJsonResult(true, FString(), Extra);
 }
 
 FString UArborActorTools::TraceGroundZ(const FString& ParamsJson)
