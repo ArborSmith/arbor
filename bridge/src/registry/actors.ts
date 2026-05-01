@@ -43,6 +43,12 @@ export const actorsTool: CategoryTool = {
       required: ["actor_name"],
       optional: ["position", "rotation", "scale", "visible", "label"],
     },
+    set_property: {
+      summary:
+        "Set arbitrary UPROPERTY on an actor by reflection (covers brush extents, gameplay-tag fields, soft refs, etc. that modify doesn't). Marks dirty; follow with ue5_level.save_current to persist.",
+      required: ["actor_name", "property_name"],
+      optional: ["value"],
+    },
     snap_to_ground: {
       summary: "Snap actor to ground with optional offset",
       required: ["actor_name"],
@@ -94,8 +100,23 @@ export const actorsTool: CategoryTool = {
     asset_path: z.string().optional().describe("Content browser path to asset (place action)"),
     // delete
     actor_names: z.array(z.string()).optional().describe("Actor names/paths to delete"),
-    // modify
-    actor_name: z.string().optional().describe("Actor name/path to modify or snap"),
+    // modify, set_property
+    actor_name: z.string().optional().describe("Actor name/path/label to target"),
+    // set_property
+    property_name: z.string().optional().describe("UPROPERTY name on the actor (set_property)"),
+    value: z
+      .unknown()
+      .optional()
+      .describe(
+        [
+          "JSON value for set_property. Encoding by FProperty type:",
+          "  bool → true/false ; int32/float/double → number ; FString/FName → \"text\"",
+          "  FGameplayTag → \"Quest.A.B\" (must be registered)",
+          "  FGameplayTagContainer → [\"Quest.A\", \"Quest.B\"]",
+          "  FObjectProperty / FSoftObjectProperty → \"/Game/Path/Asset.Asset\"",
+          "  FClassProperty / FSoftClassProperty → \"/Script/Module.ClassName\" or \"/Game/BP_Foo.BP_Foo_C\"",
+        ].join("\n")
+      ),
     position: z
       .object({ x: z.number(), y: z.number(), z: z.number() })
       .optional()
@@ -231,6 +252,16 @@ export const actorsTool: CategoryTool = {
           visible: p.visible,
           label: p.label,
         }),
+      });
+    },
+
+    async set_property(p) {
+      if (!p.actor_name) throw new Error("actor_name is required for set_property");
+      if (!p.property_name) throw new Error("property_name is required for set_property");
+      return callArborJson("ArborActorTools", "SetActorProperty", {
+        ActorName: p.actor_name as string,
+        PropertyName: p.property_name as string,
+        ValueJson: JSON.stringify(p.value),
       });
     },
 

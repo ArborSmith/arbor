@@ -11,6 +11,7 @@ import { meshTool } from "./mesh.js";
 import { assetsTool } from "./assets.js";
 import { captureTool } from "./capture.js";
 import { playtestTool } from "./playtest.js";
+import { levelTool } from "./level.js";
 
 export interface StableToolEntry {
   name: string;
@@ -29,4 +30,5 @@ export const STABLE_TOOLS: StableToolEntry[] = [
   { name: "ue5_assets", tool: assetsTool },
   { name: "ue5_capture", tool: captureTool },
   { name: "ue5_playtest", tool: playtestTool },
+  { name: "ue5_level", tool: levelTool },
 ];

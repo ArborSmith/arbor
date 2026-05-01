@@ -99,6 +99,27 @@ public:
 	static FString ModifyActor(const FString& ParamsJson);
 
 	/**
+	 * Set an arbitrary UPROPERTY on an actor by reflection. Complements
+	 * ModifyActor (which is limited to transform/visibility/label) for
+	 * cases like brush extents, gameplay-tag fields, soft-class refs,
+	 * component overrides on the actor itself, etc.
+	 *
+	 * Marks the level package dirty on success — caller should follow up
+	 * with `level.save_current` to persist.
+	 *
+	 * @param ActorName     Display label (preferred) or internal FName.
+	 * @param PropertyName  UPROPERTY name on the actor.
+	 * @param ValueJson     JSON-encoded value. Supported types:
+	 *                        scalars (bool/int32/float/double/FString/FName),
+	 *                        FGameplayTag (string), FGameplayTagContainer (array of strings),
+	 *                        FObjectProperty/FSoftObjectProperty (asset path string),
+	 *                        FClassProperty/FSoftClassProperty (class path string).
+	 * @return JSON: {success, actor_path, actor_label, property_name, error?}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|Actors")
+	static FString SetActorProperty(const FString& ActorName, const FString& PropertyName, const FString& ValueJson);
+
+	/**
 	 * Trace straight down at a world XY coordinate to find the ground Z.
 	 *
 	 * @param ParamsJson  JSON: {x, y, start_z?, trace_distance?, ignore_actors?:[label,...]}
