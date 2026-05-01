@@ -120,6 +120,27 @@ public:
 	static FString SetActorProperty(const FString& ActorName, const FString& PropertyName, const FString& ValueJson);
 
 	/**
+	 * Override a material slot on an actor's mesh component.
+	 *
+	 * Goes through UMeshComponent::SetMaterial (the canonical UE path), which
+	 * routes the assignment into the component's OverrideMaterials array.
+	 * Reliable for already-placed actors — avoids the
+	 * `set_editor_property("override_materials", [mat])` workaround that
+	 * Python callers sometimes need when set_material silently no-ops on
+	 * uncommitted assignments.
+	 *
+	 * Targets the actor's primary mesh component (UStaticMeshComponent first,
+	 * falling back to any UMeshComponent).
+	 *
+	 * @param ActorName     Display label (preferred) or internal FName.
+	 * @param Slot          Material element index (0-based).
+	 * @param MaterialPath  Asset path of UMaterialInterface (material or instance).
+	 * @return JSON: {success, actor_path, component, slot, material_path, error?}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|Actors")
+	static FString SetMeshMaterial(const FString& ActorName, int32 Slot, const FString& MaterialPath);
+
+	/**
 	 * Trace straight down at a world XY coordinate to find the ground Z.
 	 *
 	 * @param ParamsJson  JSON: {x, y, start_z?, trace_distance?, ignore_actors?:[label,...]}

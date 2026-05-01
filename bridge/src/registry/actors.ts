@@ -35,10 +35,20 @@ export const actorsTool: CategoryTool = {
       required: ["class_path"],
       optional: ["x", "y", "z", "pitch", "yaw", "roll", "scale_x", "scale_y", "scale_z", "label"],
     },
+    spawn_text: {
+      summary:
+        "Spawn a TextRenderActor (3D text). Defaults the material to /Engine/EngineMaterials/UnlitText so debug labels read consistently bright regardless of scene lighting — pass lit=true to keep the LIT default that gets tinted by environment.",
+      optional: ["text", "x", "y", "z", "pitch", "yaw", "roll", "world_size", "color", "lit", "label"],
+    },
     place: {
       summary: "Place an asset from content browser into the level",
       required: ["asset_path"],
       optional: ["x", "y", "z", "pitch", "yaw", "roll", "scale_x", "scale_y", "scale_z"],
+    },
+    set_mesh_material: {
+      summary:
+        "Override a material slot on an actor's mesh component. Goes through MeshComponent::SetMaterial (the canonical path that handles the OverrideMaterials array), so it works on already-placed actors without needing the set_editor_property('override_materials',[mat]) workaround.",
+      required: ["actor_name", "slot", "material_path"],
     },
     delete: {
       summary: "Delete actors by name",
@@ -111,6 +121,18 @@ export const actorsTool: CategoryTool = {
       .describe(
         "Class path for spawn_class. Examples: /Script/Engine.TargetPoint, /Script/Engine.TriggerVolume, /Game/BP_Foo.BP_Foo_C (or just /Game/BP_Foo — _C suffix auto-appended)."
       ),
+    // spawn_text
+    text: z.string().optional().describe("Text content for spawn_text. Default 'Text'"),
+    world_size: z.number().optional().describe("Text world size for spawn_text. Default 32"),
+    lit: z
+      .boolean()
+      .optional()
+      .describe(
+        "spawn_text: keep the LIT TextRenderComponent default (gets tinted by environment). Default false → uses /Engine/EngineMaterials/UnlitText for consistent bright color."
+      ),
+    // set_mesh_material
+    slot: z.number().optional().describe("Material element index (set_mesh_material). 0-based."),
+    material_path: z.string().optional().describe("UMaterialInterface asset path (set_mesh_material)."),
     // delete
     actor_names: z.array(z.string()).optional().describe("Actor names/paths to delete"),
     // modify, set_property
@@ -237,6 +259,31 @@ export const actorsTool: CategoryTool = {
           scale_x: p.scale_x, scale_y: p.scale_y, scale_z: p.scale_z,
           label: p.label,
         }),
+      });
+    },
+
+    async spawn_text(p) {
+      return callArborJson("ArborSpawnTools", "SpawnText", {
+        ParamsJson: JSON.stringify({
+          text: p.text,
+          x: p.x, y: p.y, z: p.z,
+          pitch: p.pitch, yaw: p.yaw, roll: p.roll,
+          world_size: p.world_size,
+          color: p.color,
+          lit: p.lit,
+          label: p.label,
+        }),
+      });
+    },
+
+    async set_mesh_material(p) {
+      if (!p.actor_name) throw new Error("actor_name is required for set_mesh_material");
+      if (p.slot === undefined) throw new Error("slot is required for set_mesh_material");
+      if (!p.material_path) throw new Error("material_path is required for set_mesh_material");
+      return callArborJson("ArborActorTools", "SetMeshMaterial", {
+        ActorName: p.actor_name as string,
+        Slot: p.slot as number,
+        MaterialPath: p.material_path as string,
       });
     },
 

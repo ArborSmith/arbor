@@ -12,6 +12,9 @@
 #include "Serialization/JsonSerializer.h"
 #include "CollisionQueryParams.h"
 #include "ILiveCodingModule.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/MeshComponent.h"
+#include "Materials/MaterialInterface.h"
 
 // ============================================================================
 // Private helpers
@@ -881,4 +884,77 @@ FString UArborActorTools::LiveCompile()
 	}
 	LC->Compile();
 	return TEXT("{\"success\":true,\"message\":\"Live Coding compile triggered\"}");
+}
+
+// ============================================================================
+// SetMeshMaterial — override a material slot on an actor's mesh component
+// ============================================================================
+
+FString UArborActorTools::SetMeshMaterial(const FString& ActorName, int32 Slot, const FString& MaterialPath)
+{
+	if (Slot < 0)
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Slot must be >= 0 (got %d)\"}"), Slot);
+	}
+
+	AActor* Actor = UArborActorTools::FindActorByAnyIdentifier(ActorName);
+	if (!Actor)
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Actor '%s' not found\"}"), *ActorName);
+	}
+
+	UMaterialInterface* Material = Cast<UMaterialInterface>(StaticLoadObject(
+		UMaterialInterface::StaticClass(), nullptr, *MaterialPath));
+	if (!Material && !MaterialPath.IsEmpty() && !MaterialPath.Contains(TEXT(".")))
+	{
+		// Retry with full object path (e.g. /Game/Materials/M_Foo → /Game/Materials/M_Foo.M_Foo)
+		const FString Leaf = FPaths::GetBaseFilename(MaterialPath);
+		Material = Cast<UMaterialInterface>(StaticLoadObject(
+			UMaterialInterface::StaticClass(), nullptr, *(MaterialPath + TEXT(".") + Leaf)));
+	}
+	if (!Material)
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Could not load material '%s'\"}"), *MaterialPath);
+	}
+
+	// Prefer StaticMeshComponent (the common case for placed mesh actors);
+	// fall back to any UMeshComponent (skeletal, instanced, etc.).
+	UMeshComponent* MeshComp = Actor->FindComponentByClass<UStaticMeshComponent>();
+	if (!MeshComp)
+	{
+		MeshComp = Actor->FindComponentByClass<UMeshComponent>();
+	}
+	if (!MeshComp)
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Actor '%s' has no MeshComponent\"}"), *ActorName);
+	}
+
+	if (Slot >= MeshComp->GetNumMaterials())
+	{
+		return FString::Printf(
+			TEXT("{\"success\":false,\"error\":\"Slot %d out of range (component has %d slots)\"}"),
+			Slot, MeshComp->GetNumMaterials());
+	}
+
+	Actor->Modify();
+	MeshComp->Modify();
+	MeshComp->SetMaterial(Slot, Material);
+	Actor->PostEditChange();
+
+	if (UPackage* Package = Actor->GetOutermost())
+	{
+		Package->MarkPackageDirty();
+	}
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetBoolField(TEXT("success"), true);
+	Root->SetStringField(TEXT("actor_path"), Actor->GetPathName());
+	Root->SetStringField(TEXT("component"), MeshComp->GetName());
+	Root->SetNumberField(TEXT("slot"), Slot);
+	Root->SetStringField(TEXT("material_path"), Material->GetPathName());
+
+	FString Output;
+	auto Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Output);
+	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+	return Output;
 }
