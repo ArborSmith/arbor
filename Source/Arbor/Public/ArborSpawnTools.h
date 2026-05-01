@@ -65,6 +65,20 @@ public:
 	static FString PlaceActor(const FString& ParamsJson);
 
 	/**
+	 * Spawn a TextRenderActor with sensible debug-text defaults.
+	 *
+	 * Defaults the material to /Engine/EngineMaterials/UnlitText so the text
+	 * reads consistently bright regardless of scene lighting — the LIT default
+	 * gets tinted by the environment, which is rarely what callers want for
+	 * debug labels. Pass `lit: true` to skip the override.
+	 *
+	 * @param ParamsJson  JSON: {text, x, y, z, pitch, yaw, roll, world_size, color:{r,g,b}, lit, label}
+	 * @return JSON: {success, actor_path, actor_name, text, location:{x,y,z}}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|Spawn")
+	static FString SpawnText(const FString& ParamsJson);
+
+	/**
 	 * Scatter static mesh actors randomly within a bounding box.
 	 * All spawning, random transform, and ground snapping in one C++ call.
 	 *

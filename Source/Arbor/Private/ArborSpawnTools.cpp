@@ -2,6 +2,9 @@
 #include "Engine/World.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/TextRenderActor.h"
+#include "Components/TextRenderComponent.h"
+#include "Materials/MaterialInterface.h"
 #include "EngineUtils.h"
 #include "Editor.h"
 #include "Subsystems/EditorActorSubsystem.h"
@@ -571,5 +574,100 @@ FString UArborSpawnTools::ScatterMeshes(const FString& ParamsJson)
 	Root->SetBoolField(TEXT("success"), true);
 	Root->SetNumberField(TEXT("placed"), Placed);
 	Root->SetArrayField(TEXT("actors"), ActorsArray);
+	return SerializeJson(Root);
+}
+
+// ============================================================================
+// SpawnText
+// ============================================================================
+
+FString UArborSpawnTools::SpawnText(const FString& ParamsJson)
+{
+	auto Params = ParseJson(ParamsJson);
+	if (!Params.IsValid())
+	{
+		return TEXT("{\"success\":false,\"error\":\"Invalid JSON\"}");
+	}
+
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		return TEXT("{\"success\":false,\"error\":\"No editor world\"}");
+	}
+
+	const FString TextStr = GetOptStr(Params, TEXT("text"), TEXT("Text"));
+	const double X = GetOpt(Params, TEXT("x"), 0);
+	const double Y = GetOpt(Params, TEXT("y"), 0);
+	const double Z = GetOpt(Params, TEXT("z"), 0);
+	const double Pitch = GetOpt(Params, TEXT("pitch"), 0);
+	const double Yaw = GetOpt(Params, TEXT("yaw"), 0);
+	const double Roll = GetOpt(Params, TEXT("roll"), 0);
+	const double WorldSize = GetOpt(Params, TEXT("world_size"), 32.0);
+	const FString Label = GetOptStr(Params, TEXT("label"));
+
+	bool bLit = false;
+	Params->TryGetBoolField(TEXT("lit"), bLit);
+
+	double R = 1.0, G = 1.0, B = 1.0;
+	const TSharedPtr<FJsonObject>* ColorObj;
+	if (Params->TryGetObjectField(TEXT("color"), ColorObj))
+	{
+		R = GetOpt(*ColorObj, TEXT("r"), 1.0);
+		G = GetOpt(*ColorObj, TEXT("g"), 1.0);
+		B = GetOpt(*ColorObj, TEXT("b"), 1.0);
+	}
+
+	const FVector Location(X, Y, Z);
+	const FRotator Rotation(Pitch, Yaw, Roll);
+
+	AActor* Actor = GetEditorActorSubsystem()->SpawnActorFromClass(
+		ATextRenderActor::StaticClass(), Location, Rotation);
+	if (!Actor)
+	{
+		return TEXT("{\"success\":false,\"error\":\"Failed to spawn TextRenderActor\"}");
+	}
+
+	UTextRenderComponent* TRC = Actor->FindComponentByClass<UTextRenderComponent>();
+	if (TRC)
+	{
+		TRC->SetText(FText::FromString(TextStr));
+		TRC->SetTextRenderColor(FColor(
+			static_cast<uint8>(FMath::Clamp(R, 0.0, 1.0) * 255.0),
+			static_cast<uint8>(FMath::Clamp(G, 0.0, 1.0) * 255.0),
+			static_cast<uint8>(FMath::Clamp(B, 0.0, 1.0) * 255.0),
+			255));
+		TRC->SetWorldSize(WorldSize);
+
+		// Default to UnlitText so debug labels read consistently regardless
+		// of scene lighting. The TextRenderComponent default material is LIT,
+		// which gets tinted by the environment — rarely what callers want.
+		if (!bLit)
+		{
+			if (UMaterialInterface* Unlit = Cast<UMaterialInterface>(StaticLoadObject(
+				UMaterialInterface::StaticClass(), nullptr,
+				TEXT("/Engine/EngineMaterials/UnlitText.UnlitText"))))
+			{
+				TRC->SetTextMaterial(Unlit);
+			}
+		}
+	}
+
+	if (!Label.IsEmpty())
+	{
+		Actor->SetActorLabel(Label);
+	}
+
+	TSharedPtr<FJsonObject> LocObj = MakeShared<FJsonObject>();
+	LocObj->SetNumberField(TEXT("x"), X);
+	LocObj->SetNumberField(TEXT("y"), Y);
+	LocObj->SetNumberField(TEXT("z"), Z);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetBoolField(TEXT("success"), true);
+	Root->SetStringField(TEXT("actor_path"), Actor->GetPathName());
+	Root->SetStringField(TEXT("actor_name"), Actor->GetActorLabel().IsEmpty() ? Actor->GetName() : Actor->GetActorLabel());
+	Root->SetStringField(TEXT("text"), TextStr);
+	Root->SetBoolField(TEXT("lit"), bLit);
+	Root->SetObjectField(TEXT("location"), LocObj);
 	return SerializeJson(Root);
 }

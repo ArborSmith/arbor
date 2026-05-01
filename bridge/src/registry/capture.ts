@@ -169,12 +169,62 @@ else:
     },
 
     async capture_from_position(p) {
-      return callArborJson("ArborCaptureTools", "CaptureFromPosition", {
-        ParamsJson: JSON.stringify({
-          x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0,
-          pitch: p.pitch ?? 0, yaw: p.yaw ?? 0, roll: p.roll ?? 0,
-        }),
-      });
+      // Route through the same Python path as `screenshot view="custom"`:
+      //   - The C++ ArborCaptureTools::CaptureFromPosition expects
+      //     {location:[x,y,z], rotation:[p,y,r]} arrays, not the
+      //     x/y/z/pitch/yaw/roll keys this action's schema documents — so
+      //     the C++ silently captured from the origin and returned a path
+      //     before the file finished writing.
+      //   - The Python helper take_screenshot_from() takes (loc, rot)
+      //     tuples, blocks until the file is on disk, and returns the path.
+      // Same wait-for-file + base64-image-return treatment as `screenshot`.
+      const pythonCall = `arbor.capture.take_screenshot_from((${p.x ?? 0}, ${p.y ?? 0}, ${p.z ?? 0}), (${p.pitch ?? 0}, ${p.yaw ?? 0}, ${p.roll ?? 0}))`;
+      const code = `
+import importlib
+import arbor.capture
+importlib.reload(arbor.capture)
+
+path = ${pythonCall}
+if path:
+    _write_result({"success": True, "screenshot_path": path})
+else:
+    _write_result({"success": False, "error": "Screenshot capture failed"})
+`;
+
+      const pyResult = await runPythonCode(code);
+      if (!pyResult.success || !pyResult.result) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: false, error: "Screenshot Python failed" }) }],
+          isError: true,
+        };
+      }
+
+      const data = pyResult.result as { success: boolean; screenshot_path?: string; error?: string };
+      if (!data.success || !data.screenshot_path) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: false, error: data.error ?? "No file produced" }) }],
+          isError: true,
+        };
+      }
+
+      const imageBuffer = await waitForScreenshotFile(data.screenshot_path);
+      if (!imageBuffer) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ success: false, error: `File not written: ${data.screenshot_path}` }) }],
+          isError: true,
+        };
+      }
+
+      const base64 = imageBuffer.toString("base64");
+      const mimeType = data.screenshot_path.endsWith(".jpg") || data.screenshot_path.endsWith(".jpeg")
+        ? "image/jpeg" : "image/png";
+
+      return {
+        content: [
+          { type: "image", data: base64, mimeType },
+          { type: "text", text: JSON.stringify({ success: true, screenshot_path: data.screenshot_path }, null, 2) },
+        ],
+      };
     },
 
     async annotate(p) {
