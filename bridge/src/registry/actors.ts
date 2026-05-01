@@ -29,6 +29,12 @@ export const actorsTool: CategoryTool = {
       summary: "Spawn a navigation mesh volume",
       optional: ["x", "y", "z", "extent_x", "extent_y", "extent_z"],
     },
+    spawn_class: {
+      summary:
+        "Spawn an actor of the given UClass at a transform. Use this for any actor type that isn't a primitive/light/navmesh — e.g. /Script/Engine.TargetPoint, /Script/Engine.TriggerVolume, or a Blueprint generated class /Game/BP_Foo.BP_Foo_C (the _C suffix is auto-appended if you omit it). Pitch/yaw/roll are passed as discrete keys, so callers never construct an unreal.Rotator() — avoids the positional-arg footgun where Python's Rotator silently puts values in wrong fields.",
+      required: ["class_path"],
+      optional: ["x", "y", "z", "pitch", "yaw", "roll", "scale_x", "scale_y", "scale_z", "label"],
+    },
     place: {
       summary: "Place an asset from content browser into the level",
       required: ["asset_path"],
@@ -92,6 +98,13 @@ export const actorsTool: CategoryTool = {
     label: z.string().optional().describe("Actor label for readability"),
     // place
     asset_path: z.string().optional().describe("Content browser path to asset (place action)"),
+    // spawn_class
+    class_path: z
+      .string()
+      .optional()
+      .describe(
+        "Class path for spawn_class. Examples: /Script/Engine.TargetPoint, /Script/Engine.TriggerVolume, /Game/BP_Foo.BP_Foo_C (or just /Game/BP_Foo — _C suffix auto-appended)."
+      ),
     // delete
     actor_names: z.array(z.string()).optional().describe("Actor names/paths to delete"),
     // modify
@@ -189,6 +202,19 @@ export const actorsTool: CategoryTool = {
         ParamsJson: JSON.stringify({
           x: p.x, y: p.y, z: p.z,
           extent_x: p.extent_x, extent_y: p.extent_y, extent_z: p.extent_z,
+        }),
+      });
+    },
+
+    async spawn_class(p) {
+      if (!p.class_path) throw new Error("class_path is required for spawn_class");
+      return callArborJson("ArborSpawnTools", "SpawnActorByClass", {
+        ParamsJson: JSON.stringify({
+          class_path: p.class_path,
+          x: p.x, y: p.y, z: p.z,
+          pitch: p.pitch, yaw: p.yaw, roll: p.roll,
+          scale_x: p.scale_x, scale_y: p.scale_y, scale_z: p.scale_z,
+          label: p.label,
         }),
       });
     },

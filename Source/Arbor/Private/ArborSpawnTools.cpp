@@ -286,6 +286,97 @@ FString UArborSpawnTools::SpawnNavMesh(const FString& ParamsJson)
 }
 
 // ============================================================================
+// SpawnActorByClass
+// ============================================================================
+
+FString UArborSpawnTools::SpawnActorByClass(const FString& ParamsJson)
+{
+	auto Params = ParseJson(ParamsJson);
+	if (!Params.IsValid())
+	{
+		return TEXT("{\"success\":false,\"error\":\"Invalid JSON\"}");
+	}
+
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		return TEXT("{\"success\":false,\"error\":\"No editor world\"}");
+	}
+
+	const FString ClassPath = GetOptStr(Params, TEXT("class_path"));
+	if (ClassPath.IsEmpty())
+	{
+		return TEXT("{\"success\":false,\"error\":\"class_path is required\"}");
+	}
+
+	// Resolve UClass: try direct, then with `_C` suffix for Blueprint generated classes.
+	UClass* Class = LoadObject<UClass>(nullptr, *ClassPath);
+	if (!Class && !ClassPath.EndsWith(TEXT("_C")))
+	{
+		Class = LoadObject<UClass>(nullptr, *(ClassPath + TEXT("_C")));
+	}
+	if (!Class)
+	{
+		// Last resort: load as Blueprint asset and pull GeneratedClass
+		if (UBlueprint* BP = Cast<UBlueprint>(UEditorAssetLibrary::LoadAsset(ClassPath)))
+		{
+			if (BP->GeneratedClass) Class = BP->GeneratedClass;
+		}
+	}
+	if (!Class)
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Could not load class '%s'\"}"), *ClassPath);
+	}
+	if (!Class->IsChildOf(AActor::StaticClass()))
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Class '%s' is not an AActor subclass\"}"), *ClassPath);
+	}
+
+	const double X = GetOpt(Params, TEXT("x"), 0);
+	const double Y = GetOpt(Params, TEXT("y"), 0);
+	const double Z = GetOpt(Params, TEXT("z"), 0);
+	const double Pitch = GetOpt(Params, TEXT("pitch"), 0);
+	const double Yaw = GetOpt(Params, TEXT("yaw"), 0);
+	const double Roll = GetOpt(Params, TEXT("roll"), 0);
+	const double SX = GetOpt(Params, TEXT("scale_x"), 1);
+	const double SY = GetOpt(Params, TEXT("scale_y"), 1);
+	const double SZ = GetOpt(Params, TEXT("scale_z"), 1);
+	const FString Label = GetOptStr(Params, TEXT("label"));
+
+	const FVector Location(X, Y, Z);
+	const FRotator Rotation(Pitch, Yaw, Roll);
+
+	AActor* Actor = GetEditorActorSubsystem()->SpawnActorFromClass(
+		TSubclassOf<AActor>(Class), Location, Rotation);
+	if (!Actor)
+	{
+		return FString::Printf(TEXT("{\"success\":false,\"error\":\"Failed to spawn '%s'\"}"), *ClassPath);
+	}
+
+	if (SX != 1.0 || SY != 1.0 || SZ != 1.0)
+	{
+		Actor->SetActorScale3D(FVector(SX, SY, SZ));
+	}
+	if (!Label.IsEmpty())
+	{
+		Actor->SetActorLabel(Label);
+	}
+
+	TSharedPtr<FJsonObject> LocObj = MakeShared<FJsonObject>();
+	LocObj->SetNumberField(TEXT("x"), X);
+	LocObj->SetNumberField(TEXT("y"), Y);
+	LocObj->SetNumberField(TEXT("z"), Z);
+
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetBoolField(TEXT("success"), true);
+	Root->SetStringField(TEXT("actor_path"), Actor->GetPathName());
+	Root->SetStringField(TEXT("actor_name"), Actor->GetActorLabel().IsEmpty() ? Actor->GetName() : Actor->GetActorLabel());
+	Root->SetStringField(TEXT("class_path"), Class->GetPathName());
+	Root->SetObjectField(TEXT("location"), LocObj);
+	return SerializeJson(Root);
+}
+
+// ============================================================================
 // PlaceActor
 // ============================================================================
 
