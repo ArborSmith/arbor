@@ -38,6 +38,24 @@ public:
 	static FString SpawnNavMesh(const FString& ParamsJson);
 
 	/**
+	 * Spawn an actor of the given UClass at a transform.
+	 *
+	 * Side-steps the unreal.Rotator() positional-args footgun in Python —
+	 * `unreal.Rotator(pitch, yaw, roll)` silently puts values in wrong fields
+	 * because its positional order doesn't match what most callers expect.
+	 * Callers passing pitch/yaw/roll as discrete keys here never need to
+	 * construct an FRotator on the Python side.
+	 *
+	 * @param ParamsJson  JSON: {class_path, x, y, z, pitch, yaw, roll, scale_x, scale_y, scale_z, label}
+	 *                    class_path: e.g. "/Script/Engine.TargetPoint" (C++ class) or
+	 *                                "/Game/BP_MyActor.BP_MyActor_C" / "/Game/BP_MyActor"
+	 *                                (Blueprint — `_C` is appended automatically if omitted).
+	 * @return JSON: {success, actor_path, actor_name, class_path, location:{x,y,z}}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|Spawn")
+	static FString SpawnActorByClass(const FString& ParamsJson);
+
+	/**
 	 * Place an actor from an asset path.
 	 *
 	 * @param ParamsJson  JSON: {asset_path, x, y, z, pitch, yaw, roll, scale_x, scale_y, scale_z}
