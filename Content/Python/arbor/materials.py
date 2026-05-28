@@ -177,3 +177,122 @@ def assign_material_by_name(actor_name, material_path, slot=0):
         result = _assign_material_single(actor_name, material_path, slot)
     write_result(result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Material graph editing (Phase 1 + Phase 2) — delegates to ArborMaterialGraphTools
+#
+# Identify expressions by stable Arbor IDs stamped into the expression's Desc
+# field. IDs survive editor save/reload. Each granular call marks the asset
+# dirty but does NOT recompile — call recompile_material() once when done, or
+# use build_material(spec) which batches everything in one FMaterialUpdateContext.
+# ---------------------------------------------------------------------------
+
+def query_material(path):
+    """Return a JSON snapshot of a material's expression graph.
+
+    Returns:
+        dict with keys: success, expressions, connections, flags, material_path.
+    """
+    return _call_cpp(unreal.ArborMaterialGraphTools.query_material(path))
+
+
+def list_expression_types(filter=""):
+    """List all UMaterialExpression subclasses, optional substring filter."""
+    return _call_cpp(unreal.ArborMaterialGraphTools.list_material_expression_types(filter or ""))
+
+
+def get_expression_class_params(class_name):
+    """Reflect on an expression class for its editable properties + defaults."""
+    return _call_cpp(unreal.ArborMaterialGraphTools.get_material_expression_class_params(class_name))
+
+
+def add_expression(material_path, expression_class, *, expression_id=None,
+                   properties=None, node_x=0, node_y=0):
+    """Add an expression to a material. Returns dict with success + expression_id.
+
+    Properties values match the JSON wire format:
+        scalars/strings/bools as-is; FLinearColor as [r,g,b,a] or {R,G,B,A};
+        FVector as [x,y,z]; UObject refs as asset path string; enums as the
+        enum value name (e.g. "SAMPLERTYPE_Normal").
+    """
+    p = {
+        "material_path": material_path,
+        "expression_class": expression_class,
+        "node_x": node_x, "node_y": node_y,
+    }
+    if expression_id:
+        p["expression_id"] = expression_id
+    if properties:
+        p["properties"] = properties
+    return _call_cpp(unreal.ArborMaterialGraphTools.add_material_expression(json.dumps(p)))
+
+
+def remove_expression(material_path, expression_id):
+    """Remove an expression by its sentinel ID."""
+    return _call_cpp(unreal.ArborMaterialGraphTools.remove_material_expression_by_id(
+        material_path, expression_id))
+
+
+def set_expression_property(material_path, expression_id, property_name, value):
+    """Set a property by name on an existing expression."""
+    p = {
+        "material_path": material_path,
+        "expression_id": expression_id,
+        "property_name": property_name,
+        "value": value,
+    }
+    return _call_cpp(unreal.ArborMaterialGraphTools.set_material_expression_property(json.dumps(p)))
+
+
+def connect_nodes(material_path, from_id, to_id, *, from_output="", to_input=""):
+    """Wire one expression's output to another expression's input pin."""
+    p = {
+        "material_path": material_path,
+        "from_id": from_id, "to_id": to_id,
+        "from_output": from_output, "to_input": to_input,
+    }
+    return _call_cpp(unreal.ArborMaterialGraphTools.connect_material_nodes(json.dumps(p)))
+
+
+def connect_output(material_path, expression_id, property, *, from_output=""):
+    """Wire an expression's output to a material output channel.
+
+    `property` accepts: BaseColor, Normal, Roughness, Metallic, EmissiveColor,
+    Opacity, OpacityMask, AmbientOcclusion, WorldPositionOffset, Refraction,
+    PixelDepthOffset, SubsurfaceColor, Tangent, Anisotropy, Specular.
+    On UE 5.7+ also: FrontMaterial, SurfaceThickness, Displacement.
+    """
+    p = {
+        "material_path": material_path,
+        "expression_id": expression_id,
+        "property": property,
+        "from_output": from_output,
+    }
+    return _call_cpp(unreal.ArborMaterialGraphTools.connect_material_output(json.dumps(p)))
+
+
+def recompile_material(path):
+    """Explicit terminal recompile + save. Call once after batched edits."""
+    return _call_cpp(unreal.ArborMaterialGraphTools.recompile_material_asset(path))
+
+
+def build_material(spec):
+    """Build or update a complete material from a JSON spec. Idempotent.
+
+    See ArborMaterialGraphTools.h::BuildMaterial for spec schema.
+    """
+    return _call_cpp(unreal.ArborMaterialGraphTools.build_material(json.dumps(spec)))
+
+
+def render_thumbnail(material_path, output_path, width=256, height=256):
+    """Render a material's thumbnail to a PNG file via the UE thumbnail pipeline.
+
+    Args:
+        material_path: e.g. "/Game/Materials/M_Concrete"
+        output_path:   absolute filesystem path; parent dirs auto-created
+        width, height: pixel dims (default 256x256)
+    """
+    p = {"material_path": material_path, "output_path": output_path,
+         "width": width, "height": height}
+    return _call_cpp(unreal.ArborMaterialGraphTools.render_material_thumbnail(json.dumps(p)))

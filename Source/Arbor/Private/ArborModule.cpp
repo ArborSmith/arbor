@@ -3,6 +3,7 @@
 #include "ArborRegistryHelper.h"
 #include "ArborChatTab.h"
 #include "ArborRegistryTab.h"
+#include "ArborMaterialCatalogTab.h"
 #include "ArborGameCodexTab.h"
 #include "ArborTextureReviewTab.h"
 #include "ArborTextureReviewWidget.h"
@@ -99,6 +100,17 @@ void FArborModule::RegisterMenus()
 		FUIAction(FExecuteAction::CreateLambda([]()
 		{
 			FGlobalTabmanager::Get()->TryInvokeTab(FArborRegistryTab::TabId);
+		}))
+	);
+
+	Section.AddMenuEntry(
+		"ArborMaterialCatalog",
+		LOCTEXT("ArborMaterialCatalog", "Material Catalog"),
+		LOCTEXT("ArborMaterialCatalogTip", "Browse and curate the project's tagged material catalog"),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.ContentBrowser"),
+		FUIAction(FExecuteAction::CreateLambda([]()
+		{
+			FGlobalTabmanager::Get()->TryInvokeTab(FArborMaterialCatalogTab::TabId);
 		}))
 	);
 
@@ -212,6 +224,7 @@ void FArborModule::StartupModule()
 
 	FArborChatTab::Register();
 	FArborRegistryTab::Register();
+	FArborMaterialCatalogTab::Register();
 	FArborTextureReviewTab::Register();
 	FArborScreenshotTab::Register();
 	FArborImageViewerTab::Register();
@@ -735,6 +748,7 @@ void FArborModule::ShutdownModule()
 
 	FArborChatTab::Unregister();
 	FArborRegistryTab::Unregister();
+	FArborMaterialCatalogTab::Unregister();
 	FArborGameCodexTab::Unregister();
 	FArborTextureReviewTab::Unregister();
 	FArborTextVariationTab::Unregister();
