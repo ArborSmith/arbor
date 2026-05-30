@@ -13,13 +13,15 @@ FString UArborSettings::GetEnabledFeaturesJson() const
 		TEXT("\"concept_art_studio\":%s,")
 		TEXT("\"environment\":%s,")
 		TEXT("\"anchors\":%s,")
-		TEXT("\"pcg\":%s")
+		TEXT("\"pcg\":%s,")
+		TEXT("\"widget\":%s")
 		TEXT("}"),
 		bEnableExperimentalFeatures ? TEXT("true") : TEXT("false"),
 		bEnableCodex                ? TEXT("true") : TEXT("false"),
 		bEnableConceptArtStudio     ? TEXT("true") : TEXT("false"),
 		bEnableEnvironment          ? TEXT("true") : TEXT("false"),
 		bEnableAnchors              ? TEXT("true") : TEXT("false"),
-		bEnablePCG                  ? TEXT("true") : TEXT("false")
+		bEnablePCG                  ? TEXT("true") : TEXT("false"),
+		bEnableWidget               ? TEXT("true") : TEXT("false")
 	);
 }

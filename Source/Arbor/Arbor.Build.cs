@@ -56,7 +56,11 @@ public class Arbor : ModuleRules
 			"DeveloperSettings",
 			"Settings",
 			"GraphEditor",
-			"ContentBrowser"
+			"ContentBrowser",
+			"UMG",
+			"UMGEditor",
+			"MovieScene",
+			"MovieSceneTracks"
 		});
 	}
 }
