@@ -399,6 +399,15 @@ UWidget* UWidgetBlueprintBuilder::CreateWidgetFromSpec(UWidgetBlueprint* WBP, co
 			return nullptr;
 		}
 		UPanelSlot* Slot = Panel->AddChild(W);
+
+		// Optional explicit child index (AddChild appends; ShiftChild moves it). Lets callers
+		// control panel/overlay ordering, e.g. inserting a layer stack before another.
+		int32 ChildIndex = INDEX_NONE;
+		if (Spec->TryGetNumberField(TEXT("index"), ChildIndex) && ChildIndex >= 0)
+		{
+			Panel->ShiftChild(ChildIndex, W);
+		}
+
 		const TSharedPtr<FJsonObject>* SlotProps;
 		if (Slot && Spec->TryGetObjectField(TEXT("slot_properties"), SlotProps))
 		{

@@ -443,9 +443,11 @@ All BP operations are now available via MCP `ue5_blueprint(action=...)`. For `ue
 | `Branch` | — | In: `execute`, `Condition` / Out: `then`, `else` |
 | `CastTo` | `class` | In: `execute`, `Object` / Out: `then`, `CastFailed`, `As<Class>` |
 | `Timeline` | `timeline` (name) | In: `Play`, `PlayFromStart`, `Stop`, `Reverse` / Out: `Update`, `Finished`, track pins |
+| `FormatText` | `format` (e.g. `"{cur}/{req}"`) | Out: `Result` (text) + one arg pin per `{placeholder}` |
+| `CreateWidget` | `defaults.Class` (widget class path) | In: `execute`, `Class`, `OwningPlayer` / Out: `then`, `ReturnValue` (+ ExposeOnSpawn pins) |
 | *(any UK2Node class)* | `properties` (opt), `defaults` (opt) | *(resolved at runtime)* |
 
-The `UK2Node_` prefix is optional when specifying node classes.
+The `UK2Node_` prefix is optional when specifying node classes - the builder resolves K2 nodes in any module (BlueprintGraph, UMGEditor, ...) via reflection. `FormatText` generates an argument pin for each `{name}` in its format string; `CreateWidget` surfaces the widget's ExposeOnSpawn pins once `defaults.Class` is set.
 
 **Runtime discovery:** Use `ue5_blueprint(action="list_node_types", filter="Sequence")` to discover available K2Node types. Use `ue5_blueprint(action="list_functions", class_name="KismetMathLibrary")` to list callable functions on a class. Use `ue5_blueprint(action="list_component_types", filter="Mesh")` to discover component types. Don't guess node/function/component names — discover them.
 
@@ -557,7 +559,7 @@ MCP: `ue5_widget(action="create"|"query"|"add_widget"|"remove_widget"|"set_widge
 
 Authoring goes through C++ builders (UMG/UMGEditor APIs), never raw `unreal` `set_editor_property` on the WidgetTree/CDO (the hard rule applies here too). Builders update in place and never delete-recreate, so references survive.
 
-**Widget tree**: lives on `UWidgetBlueprint::WidgetTree`. `create` builds a WidgetBlueprint subclass of any `UUserWidget`/`UCommonActivatableWidget` (resolve `parent_class` by short name or `/Script/...` path) and can build the whole tree in one call via a `tree` array. Each widget spec: `{name, type, parent?, root?, is_variable?, properties?, slot_properties?}`. List parents before children. Discover types with `list_widget_types` - never guess class names.
+**Widget tree**: lives on `UWidgetBlueprint::WidgetTree`. `create` builds a WidgetBlueprint subclass of any `UUserWidget`/`UCommonActivatableWidget` (resolve `parent_class` by short name or `/Script/...` path) and can build the whole tree in one call via a `tree` array. Each widget spec: `{name, type, parent?, root?, index?, is_variable?, properties?, slot_properties?}`. List parents before children. `index` (optional) sets the child's slot order within its parent panel (appended then shifted) - use it to control overlay/box z-ordering. Discover types with `list_widget_types` - never guess class names.
 
 **BindWidget is the whole point**: for a C++ `UPROPERTY(meta=(BindWidget)) UTextBlock* Foo;` to bind, the UMG widget must be named **exactly** `Foo` and be a variable (default `is_variable: true`). `query` reports the parent class's `BindWidget`/`BindWidgetOptional` properties (name + type + optional) so you know which names to use; mismatches make `compile` throw "A required widget binding is missing" (surfaced verbatim).
 
