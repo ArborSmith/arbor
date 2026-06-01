@@ -78,6 +78,8 @@ Result drives which categories `index.ts` registers.
 - **ue5_anchors** — Mesh anchor metadata + debug visualization
 - **ue5_concept_art_studio** — Unified concept art generation pipeline
 - **ue5_pcg** — PCG graph editing + execution; landscape scattering
+- **ue5_widget** — UMG Widget Blueprint authoring: create/query/edit the widget tree, set widget + slot properties (incl. brush images), set root, list widget types, compile
+- **ue5_widget_animation** — UMG widget animations via preset recipes (fade/slide/pop/pulse/strikeoff) + low-level keyframe track hatch
 
 ## Reporting bugs
 

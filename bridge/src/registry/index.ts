@@ -14,3 +14,5 @@ export { anchorsTool } from "./anchors.js";
 export { environmentTool } from "./environment.js";
 export { codexTool } from "./codex.js";
 export { conceptArtStudioTool } from "./concept-art-studio.js";
+export { widgetTool } from "./widget.js";
+export { widgetAnimationTool } from "./widget-animation.js";

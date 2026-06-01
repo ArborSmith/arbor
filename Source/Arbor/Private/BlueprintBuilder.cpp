@@ -52,6 +52,7 @@
 #include "K2Node_Timeline.h"
 #include "K2Node_Event.h"
 #include "K2Node_DynamicCast.h"
+#include "K2Node_FormatText.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "Kismet2/BlueprintEditorUtils.h"
@@ -1915,6 +1916,26 @@ UEdGraphNode* UBlueprintBuilder::CreateNodeFromJson(
 	{
 		Node = CreateCastNode(Blueprint, Graph, NodeJson, PosX, PosY);
 	}
+	else if (NodeType == TEXT("FormatText"))
+	{
+		// UK2Node_FormatText generates one argument pin per {placeholder} in the format string,
+		// so set the Format text and let the node regenerate its arg pins.
+		UK2Node_FormatText* FmtNode = NewObject<UK2Node_FormatText>(Graph);
+		Graph->AddNode(FmtNode, false, false);
+		FmtNode->AllocateDefaultPins();
+		FmtNode->NodePosX = PosX;
+		FmtNode->NodePosY = PosY;
+		FString Format;
+		if (NodeJson->TryGetStringField(TEXT("format"), Format))
+		{
+			if (UEdGraphPin* FormatPin = FmtNode->GetFormatPin())
+			{
+				FormatPin->DefaultTextValue = FText::FromString(Format);
+				FmtNode->PinDefaultValueChanged(FormatPin);
+			}
+		}
+		Node = FmtNode;
+	}
 	else
 	{
 		// Generic fallback: treat type as a UE5 class name (e.g. "UK2Node_ExecutionSequence")
@@ -2633,9 +2654,24 @@ UEdGraphNode* UBlueprintBuilder::CreateGenericNode(
 	const FString& NodeType,
 	int32 PosX, int32 PosY)
 {
-	// Resolve the node class by name. Try as-is first, then with UK2Node_ prefix.
+	// Resolve the node class by name. TryFindTypeSlow finds already-loaded native classes in
+	// ANY module (BlueprintGraph, UMGEditor, ...) - StaticLoadClass misses compiled-in classes,
+	// which is why editor K2Nodes like UK2Node_CreateWidget previously failed to resolve.
 	FString ClassName = NodeType;
-	UClass* NodeClass = FindObject<UClass>(static_cast<UObject*>(nullptr), *ClassName);
+	UClass* NodeClass = UClass::TryFindTypeSlow<UClass>(ClassName);
+	if (!NodeClass && !ClassName.StartsWith(TEXT("K2Node_")) && !ClassName.StartsWith(TEXT("UK2Node_")))
+	{
+		// Reflected class names drop the U prefix, so K2 nodes register as "K2Node_<X>".
+		NodeClass = UClass::TryFindTypeSlow<UClass>(TEXT("K2Node_") + ClassName);
+		if (!NodeClass)
+		{
+			NodeClass = UClass::TryFindTypeSlow<UClass>(TEXT("UK2Node_") + ClassName);
+		}
+	}
+	if (!NodeClass)
+	{
+		NodeClass = FindObject<UClass>(static_cast<UObject*>(nullptr), *ClassName);
+	}
 
 	if (!NodeClass)
 	{
@@ -2721,6 +2757,16 @@ UEdGraphNode* UBlueprintBuilder::CreateGenericNode(
 					TEXT("Generic node '%s': pin '%s' not found"),
 					*NodeType, *Pair.Key);
 			}
+		}
+	}
+
+	// Construct-from-class nodes (e.g. UK2Node_CreateWidget) expose extra pins once their
+	// Class pin is set - nudge them to regenerate now that defaults are applied.
+	if (UEdGraphPin* ClassPin = Node->FindPin(TEXT("Class")))
+	{
+		if (ClassPin->DefaultObject != nullptr)
+		{
+			Node->PinDefaultValueChanged(ClassPin);
 		}
 	}
 
@@ -3628,8 +3674,10 @@ FString UBlueprintBuilder::GetNodePins(const FString& NodeJsonString, const FStr
 		bCreatedTransientBP = true;
 	}
 
-	// Create a transient graph for the temporary node
-	UEdGraph* TempGraph = NewObject<UEdGraph>(GetTransientPackage(), NAME_None, RF_Transient);
+	// Create a transient graph for the temporary node. Parent it to the Blueprint (not the
+	// transient package) so nodes can resolve GetBlueprint() during AllocateDefaultPins -
+	// member-function nodes on UMG/other classes dereference it and crash if it's null.
+	UEdGraph* TempGraph = NewObject<UEdGraph>(Blueprint, NAME_None, RF_Transient);
 	TempGraph->Schema = UEdGraphSchema_K2::StaticClass();
 
 	// Create the node using existing infrastructure

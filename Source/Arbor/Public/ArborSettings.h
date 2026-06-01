@@ -96,6 +96,12 @@ public:
 			  ToolTip="Procedural Content Generation graph builders + landscape scattering."))
 	bool bEnablePCG = true;
 
+	UPROPERTY(EditAnywhere, Config, Category="Experimental Features",
+		meta=(DisplayName="Widget (UMG)",
+			  EditCondition="bEnableExperimentalFeatures",
+			  ToolTip="UMG Widget Blueprint authoring + preset-driven UI animations (ue5_widget / ue5_widget_animation)."))
+	bool bEnableWidget = true;
+
 	/** Returns a JSON blob describing which feature flags are enabled. Called by
 	 *  the ue5-bridge MCP server at boot via Remote Control API to decide which
 	 *  tool categories to register. */

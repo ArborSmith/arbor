@@ -443,9 +443,11 @@ All BP operations are now available via MCP `ue5_blueprint(action=...)`. For `ue
 | `Branch` | — | In: `execute`, `Condition` / Out: `then`, `else` |
 | `CastTo` | `class` | In: `execute`, `Object` / Out: `then`, `CastFailed`, `As<Class>` |
 | `Timeline` | `timeline` (name) | In: `Play`, `PlayFromStart`, `Stop`, `Reverse` / Out: `Update`, `Finished`, track pins |
+| `FormatText` | `format` (e.g. `"{cur}/{req}"`) | Out: `Result` (text) + one arg pin per `{placeholder}` |
+| `CreateWidget` | `defaults.Class` (widget class path) | In: `execute`, `Class`, `OwningPlayer` / Out: `then`, `ReturnValue` (+ ExposeOnSpawn pins) |
 | *(any UK2Node class)* | `properties` (opt), `defaults` (opt) | *(resolved at runtime)* |
 
-The `UK2Node_` prefix is optional when specifying node classes.
+The `UK2Node_` prefix is optional when specifying node classes - the builder resolves K2 nodes in any module (BlueprintGraph, UMGEditor, ...) via reflection. `FormatText` generates an argument pin for each `{name}` in its format string; `CreateWidget` surfaces the widget's ExposeOnSpawn pins once `defaults.Class` is set.
 
 **Runtime discovery:** Use `ue5_blueprint(action="list_node_types", filter="Sequence")` to discover available K2Node types. Use `ue5_blueprint(action="list_functions", class_name="KismetMathLibrary")` to list callable functions on a class. Use `ue5_blueprint(action="list_component_types", filter="Mesh")` to discover component types. Don't guess node/function/component names — discover them.
 
@@ -548,6 +550,40 @@ setup_anim(asset_path, blendspace_path, variable_bindings=[
 **Granular editing works on AnimGraph nodes too.** The `connect`, `disconnect`, `set_pin`, and `remove_node` actions search all graphs (Event Graph + AnimGraph) by GUID. Use `query_anim` to get node GUIDs, then use the standard actions to edit them.
 
 ---
+
+## Widget Editing (UMG)
+
+> Experimental: enable Project Settings -> Plugins -> Arbor -> Experimental Features -> "Widget (UMG)", then restart the bridge. New UFUNCTIONs (`UWidgetBlueprintBuilder`, `UWidgetAnimationBuilder`) require a full editor restart after first compile (Live Coding cannot register new UFUNCTIONs).
+
+MCP: `ue5_widget(action="create"|"query"|"add_widget"|"remove_widget"|"set_widget_property"|"set_root"|"list_widget_types"|"compile")`.
+
+Authoring goes through C++ builders (UMG/UMGEditor APIs), never raw `unreal` `set_editor_property` on the WidgetTree/CDO (the hard rule applies here too). Builders update in place and never delete-recreate, so references survive.
+
+**Widget tree**: lives on `UWidgetBlueprint::WidgetTree`. `create` builds a WidgetBlueprint subclass of any `UUserWidget`/`UCommonActivatableWidget` (resolve `parent_class` by short name or `/Script/...` path) and can build the whole tree in one call via a `tree` array. Each widget spec: `{name, type, parent?, root?, index?, is_variable?, properties?, slot_properties?}`. List parents before children. `index` (optional) sets the child's slot order within its parent panel (appended then shifted) - use it to control overlay/box z-ordering. Discover types with `list_widget_types` - never guess class names.
+
+**BindWidget is the whole point**: for a C++ `UPROPERTY(meta=(BindWidget)) UTextBlock* Foo;` to bind, the UMG widget must be named **exactly** `Foo` and be a variable (default `is_variable: true`). `query` reports the parent class's `BindWidget`/`BindWidgetOptional` properties (name + type + optional) so you know which names to use; mismatches make `compile` throw "A required widget binding is missing" (surfaced verbatim).
+
+**Brush images / textures**: `set_widget_property` accepts a brush spec, e.g. `{"Brush":{"image":"/Game/UI/T_Panel","draw_as":"Box","image_size":{"x":256,"y":64},"tint":{"r":1,"g":1,"b":1,"a":1},"margin":{"left":12,"top":12,"right":12,"bottom":12}}}`. Use `draw_as:"Box"` (9-slice) for panel backgrounds, `"Image"` for icons. Slot fields go under `{"__slot":{...}}` or `slot_properties` on add_widget.
+
+**Event graph is reused, not duplicated**: a WidgetBlueprint IS-A UBlueprint, so wire `ShowTracker -> PlayAnimation`, `UpdateObjective -> SetText/SetPercent`, etc. via the existing `ue5_blueprint` `add_node`/`connect`/`compile` pointed at the widget asset path. The animation variable name (see below) is the `VariableGet` to feed `PlayAnimation`'s `InAnimation` pin.
+
+### Widget Animations
+
+MCP: `ue5_widget_animation(action="add_preset"|"query"|"remove"|"add_track")`.
+
+Preset-driven, so you get good motion without hand-keying. One animation `name` holds one or more tracks (so `Intro` = fade_in + slide_in plays together). After authoring, the blueprint recompiles and the animation surfaces as a `UWidgetAnimation*` variable you reference from the event graph.
+
+`add_preset` spec: `{ name, tracks: [ { preset, target, duration?, direction?, distance?, overshoot? } ] }`.
+
+| preset | effect | key params (defaults) |
+|--------|--------|-----------------------|
+| `fade_in` / `fade_out` | RenderOpacity 0->1 / 1->0 | duration (0.35 / 0.25) |
+| `slide_in` / `slide_out` | RenderTransform translation | direction (left/right/top/bottom), distance (120), duration (0.35) |
+| `pop` / `scale_in` | RenderTransform scale 0->1 | overshoot (1.1 for pop), duration (0.3). Pivot defaults to center. |
+| `pulse` | scale 1->peak->1 | overshoot (1.08), duration (0.5). Loop via PlayAnimation NumLoopsToPlay. |
+| `strikeoff` | left-to-right wipe over a text widget | duration (0.4). Auto-creates a `<target>_Strike` Image overlay (best-effort; Overlay/Canvas parent recommended). |
+
+Low-level hatch `add_track`: `{ animation, target, track_type:"float"|"transform2d", property?, duration?, channels:[{component, keys:[{t,v}]}] }`. transform2d components: `TranslationX|TranslationY|ScaleX|ScaleY|Rotation`. Use when a preset is not enough.
 
 ## AI Texture Generation
 

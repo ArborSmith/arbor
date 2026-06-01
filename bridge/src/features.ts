@@ -7,6 +7,7 @@ export interface Features {
   codex?: boolean;
   concept_art_studio?: boolean;
   pcg?: boolean;
+  widget?: boolean;
 }
 
 const ALL_EXPERIMENTAL_KEYS: ExperimentalFeatureKey[] = [
@@ -15,6 +16,7 @@ const ALL_EXPERIMENTAL_KEYS: ExperimentalFeatureKey[] = [
   "codex",
   "concept_art_studio",
   "pcg",
+  "widget",
 ];
 
 function parseEnvOverride(raw: string): Features {
