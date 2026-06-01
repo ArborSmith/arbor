@@ -14,6 +14,23 @@ def _call_cpp(result_json):
     return result
 
 
+def _force_compile(material_path):
+    """Compile a material's shaders synchronously so previews/thumbnails reflect
+    the real material instead of the default (lit-grey) placeholder.
+
+    The thumbnail + viewport pipeline shows the default material while shaders
+    compile asynchronously. Forcing AsyncCompiling off + recompiling in the same
+    call makes the result reliable. Best-effort; never raises.
+    """
+    try:
+        unreal.SystemLibrary.execute_console_command(None, "r.ShaderCompiler.AsyncCompiling 0")
+        asset = unreal.load_asset(material_path)
+        if isinstance(asset, unreal.Material):
+            unreal.MaterialEditingLibrary.recompile_material(asset)
+    except Exception as e:  # noqa: BLE001 - diagnostics only
+        unreal.log_warning(f"[arbor.materials] _force_compile({material_path}): {e}")
+
+
 # ---------------------------------------------------------------------------
 # Public API — all delegate to ArborMaterialTools C++
 # ---------------------------------------------------------------------------
@@ -285,14 +302,101 @@ def build_material(spec):
     return _call_cpp(unreal.ArborMaterialGraphTools.build_material(json.dumps(spec)))
 
 
-def render_thumbnail(material_path, output_path, width=256, height=256):
+def build_material_checked(spec):
+    """Build a material AND verify it actually compiled, in one call.
+
+    Builds the spec, forces a synchronous shader compile, then reads back the
+    compile errors. Returns the build result augmented with:
+        - compile_errors: list[str]  (empty = compiled clean)
+        - all_wired:       bool       (every spec connection resolved)
+        - ok:              bool       (success AND no compile errors AND wired)
+
+    This collapses the build -> recompile -> query_material(compile_errors)
+    loop you'd otherwise run by hand every time. A material that renders as the
+    default lit-grey sphere has FAILED to compile - read `compile_errors` for
+    the reason (e.g. "(Node ComponentMask) Missing ComponentMask input") instead
+    of guessing from screenshots.
+    """
+    result = build_material(spec) or {}
+    path = spec.get("path", "")
+    _force_compile(path)
+    q = query_material(path) if path else {}
+    errors = q.get("compile_errors") or []
+    expected = len(spec.get("connections") or [])
+    actual = result.get("connection_count")
+    result["compile_errors"] = errors
+    result["all_wired"] = (actual == expected) if actual is not None else None
+    result["ok"] = bool(result.get("success")) and not errors and result["all_wired"] is not False
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Material Function authoring (Phase 7) — delegates to ArborMaterialGraphTools
+#
+# Same sentinel-ID / reflection machinery as build_material, but the asset is a
+# UMaterialFunction. A function has NO material-output pins or flags: its inputs
+# are MaterialExpressionFunctionInput nodes and its outputs are
+# MaterialExpressionFunctionOutput nodes. Wire math into a FunctionOutput's
+# (unnamed) input pin via the normal connections list with an empty to_input.
+# ---------------------------------------------------------------------------
+
+def query_material_function(path):
+    """Return a JSON snapshot of a Material Function's graph.
+
+    Returns:
+        dict with keys: success, function_path, description, expose_to_library,
+        library_categories, expressions, connections, inputs, outputs.
+    """
+    return _call_cpp(unreal.ArborMaterialGraphTools.query_material_function(path))
+
+
+def build_material_function(spec):
+    """Build or update a complete UMaterialFunction from a JSON spec. Idempotent.
+
+    See ArborMaterialGraphTools.h::BuildMaterialFunction for the spec schema.
+    Minimal example (signed-distance circle):
+
+        build_material_function({
+            "path": "/Game/Assets/Materials/Functions/Procedural/MF_SDF_Circle",
+            "description": "Signed distance to a circle; negative inside.",
+            "expose_to_library": True,
+            "library_categories": ["Procedural", "SDF"],
+            "expressions": [
+                {"id": "in_uv", "class": "MaterialExpressionFunctionInput",
+                 "properties": {"InputName": "UV",
+                                "InputType": "FunctionInput_Vector2",
+                                "SortPriority": 0}},
+                {"id": "out_d", "class": "MaterialExpressionFunctionOutput",
+                 "properties": {"OutputName": "Distance", "SortPriority": 0}},
+                # ... math nodes ...
+            ],
+            "connections": [
+                {"from": "len", "to": "sub", "to_input": "A"},
+                {"from": "sub", "to": "out_d", "to_input": ""},
+            ],
+        })
+
+    Returns:
+        dict with keys: success, function_path, expression_count,
+        connection_count, inputs, outputs.
+    """
+    return _call_cpp(unreal.ArborMaterialGraphTools.build_material_function(json.dumps(spec)))
+
+
+def render_thumbnail(material_path, output_path, width=256, height=256, ensure_compiled=True):
     """Render a material's thumbnail to a PNG file via the UE thumbnail pipeline.
 
     Args:
-        material_path: e.g. "/Game/Materials/M_Concrete"
-        output_path:   absolute filesystem path; parent dirs auto-created
-        width, height: pixel dims (default 256x256)
+        material_path:   e.g. "/Game/Materials/M_Concrete"
+        output_path:     absolute filesystem path; parent dirs auto-created
+        width, height:   pixel dims (default 256x256)
+        ensure_compiled: force shaders to compile first (default True) so a
+                         freshly-built material doesn't capture as the default
+                         lit-grey placeholder. Set False to skip (e.g. batch
+                         rendering already-compiled assets).
     """
+    if ensure_compiled:
+        _force_compile(material_path)
     p = {"material_path": material_path, "output_path": output_path,
          "width": width, "height": height}
     return _call_cpp(unreal.ArborMaterialGraphTools.render_material_thumbnail(json.dumps(p)))

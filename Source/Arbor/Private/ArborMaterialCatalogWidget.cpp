@@ -299,7 +299,10 @@ void SArborMaterialCatalogWidget::LoadIndex()
 		TSharedPtr<FArborCatalogEntry> E = MakeShared<FArborCatalogEntry>();
 		E->Id = Obj->GetStringField(TEXT("id"));
 		E->YamlPath = Obj->GetStringField(TEXT("yaml_path"));
+		Obj->TryGetStringField(TEXT("type"), E->Type);        // missing -> reference_material
+		if (E->Type.IsEmpty()) E->Type = TEXT("reference_material");
 		E->Source = Obj->GetStringField(TEXT("source"));
+		Obj->TryGetStringField(TEXT("mf_path"), E->MFPath);   // pattern entries only
 		E->Status = Obj->GetStringField(TEXT("status"));
 		Obj->TryGetStringField(TEXT("description"), E->Description);
 		Obj->TryGetStringField(TEXT("shading_model"), E->ShadingModel);
@@ -486,11 +489,17 @@ TSharedRef<SWidget> SArborMaterialCatalogWidget::BuildDetailPanel()
 	}
 
 	// Load + apply the entry's source material so the sphere reflects current state.
-	if (UObject* Asset = UEditorAssetLibrary::LoadAsset(E->Source))
+	// Pattern entries reference a Material Function (no standalone material to
+	// preview), so we rely on their rendered thumbnail and skip the live load.
+	const bool bIsPattern = (E->Type == TEXT("pattern"));
+	if (!bIsPattern)
 	{
-		if (UMaterialInterface* Mat = Cast<UMaterialInterface>(Asset))
+		if (UObject* Asset = UEditorAssetLibrary::LoadAsset(E->Source))
 		{
-			PreviewViewport->SetMaterial(Mat);
+			if (UMaterialInterface* Mat = Cast<UMaterialInterface>(Asset))
+			{
+				PreviewViewport->SetMaterial(Mat);
+			}
 		}
 	}
 
@@ -525,7 +534,9 @@ TSharedRef<SWidget> SArborMaterialCatalogWidget::BuildDetailPanel()
 			+ SVerticalBox::Slot().AutoHeight().Padding(0, 2, 0, 0)
 			[
 				SNew(STextBlock)
-				.Text(FText::FromString(E->Source))
+				.Text(FText::FromString(bIsPattern
+					? FString::Printf(TEXT("%s  (MF pattern)"), *E->MFPath)
+					: E->Source))
 				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
 				.ColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.55f, 0.55f)))
 				.AutoWrapText(true)
@@ -1131,13 +1142,17 @@ FReply SArborMaterialCatalogWidget::OnDeleteSelected()
 
 FReply SArborMaterialCatalogWidget::OnOpenInEditor()
 {
-	if (!SelectedEntry.IsValid() || SelectedEntry->Source.IsEmpty()) return FReply::Handled();
+	if (!SelectedEntry.IsValid()) return FReply::Handled();
+	// Pattern entries point at a Material Function; everything else at a Material.
+	const FString AssetPath = (SelectedEntry->Type == TEXT("pattern"))
+		? SelectedEntry->MFPath : SelectedEntry->Source;
+	if (AssetPath.IsEmpty()) return FReply::Handled();
 	if (GEditor)
 	{
 		UAssetEditorSubsystem* AES = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>();
 		if (AES)
 		{
-			AES->OpenEditorForAsset(SelectedEntry->Source);
+			AES->OpenEditorForAsset(AssetPath);
 		}
 	}
 	return FReply::Handled();

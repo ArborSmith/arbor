@@ -22,12 +22,17 @@
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialFunctionInterface.h"
+#include "Materials/MaterialFunction.h"
+#include "Materials/MaterialExpressionFunctionInput.h"
+#include "Materials/MaterialExpressionFunctionOutput.h"
+#include "Factories/MaterialFunctionFactoryNew.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialParameters.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "Materials/MaterialInterface.h"
 #include "MaterialEditingLibrary.h"
 #include "MaterialShared.h"
+#include "RHI.h"
 #include "EditorAssetLibrary.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
@@ -121,6 +126,13 @@ namespace
 	{
 		// Access via the expression collection; stable across UE 5.4-5.7.
 		return Material->GetExpressionCollection().Expressions;
+	}
+
+	const TArray<TObjectPtr<UMaterialExpression>>& GetFunctionExpressions(UMaterialFunction* Function)
+	{
+		// UMaterialFunction exposes the same expression-collection accessor as
+		// UMaterial, so the sentinel-ID scheme works unchanged for functions.
+		return Function->GetExpressionCollection().Expressions;
 	}
 
 	UMaterialExpression* FindExpressionById(UMaterial* Material, const FString& Id)
@@ -666,11 +678,25 @@ FString UArborMaterialGraphTools::QueryMaterial(const FString& MaterialPath)
 	Flags->SetBoolField(TEXT("two_sided"), Mat->TwoSided);
 	Flags->SetBoolField(TEXT("use_material_attributes"), Mat->bUseMaterialAttributes);
 
+	// Compile errors from the current feature level's material resource. Lets
+	// callers see WHY a material fell back to the default (lit-grey) material
+	// instead of guessing - the #1 material-debugging pain point. Empty array =
+	// compiled clean (or shaders not yet built; recompile first if unsure).
+	TArray<TSharedPtr<FJsonValue>> ErrArr;
+	if (FMaterialResource* Res = Mat->GetMaterialResource(GMaxRHIShaderPlatform))
+	{
+		for (const FString& Err : Res->GetCompileErrors())
+		{
+			ErrArr.Add(MakeShared<FJsonValueString>(Err));
+		}
+	}
+
 	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
 	Out->SetArrayField(TEXT("expressions"), ExprArr);
 	Out->SetArrayField(TEXT("connections"), ConnArr);
 	Out->SetArrayField(TEXT("outputs"), OutputsArr);
 	Out->SetObjectField(TEXT("flags"), Flags);
+	Out->SetArrayField(TEXT("compile_errors"), ErrArr);
 	Out->SetStringField(TEXT("material_path"), MaterialPath);
 	return JsonOk(Out);
 }
@@ -1151,6 +1177,14 @@ FString UArborMaterialGraphTools::RenderMaterialThumbnail(const FString& ParamsJ
 	if (!MatInterface) return JsonError(FString::Printf(
 		TEXT("Material or MaterialInstance not found: %s"), *MaterialPath));
 
+	// NOTE: a material whose shaders are still compiling renders here as the
+	// default (lit grey) material - a silent wrong result. Callers must ensure
+	// the material's shaders are ready first: run `r.ShaderCompiler.AsyncCompiling 0`
+	// then `MaterialEditingLibrary.recompile_material(m)` in the SAME call before
+	// render_thumbnail. (An in-renderer auto-flush was attempted but the thumbnail
+	// pipeline requests shaders lazily per feature-level/vertex-factory, so a
+	// flush here does not reliably catch them.)
+
 	// UThumbnailManager dispatches to the right ThumbnailRenderer for the
 	// object's class — FMaterialThumbnailRenderer for masters,
 	// FMaterialInstanceThumbnailRenderer for instances.
@@ -1201,5 +1235,365 @@ FString UArborMaterialGraphTools::RenderMaterialThumbnail(const FString& ParamsJ
 	Out->SetStringField(TEXT("output_path"), OutputPath);
 	Out->SetNumberField(TEXT("width"), ActualWidth);
 	Out->SetNumberField(TEXT("height"), ActualHeight);
+	return JsonOk(Out);
+}
+
+// ============================================================================
+// Phase 7: Material Function authoring
+//
+// Mirrors QueryMaterial / BuildMaterial but operates on a UMaterialFunction.
+// Reuses every file-scope helper above (GetArborId/SetArborId,
+// ResolveExpressionClass, ApplyExpressionProperties, ReadMaterialProperty) so
+// the only function-specific code is asset load/create, the create/delete API
+// (CreateMaterialExpressionInFunction / DeleteMaterialExpressionInFunction), and
+// input/output enumeration. Functions have no material-output pins or flags.
+// ============================================================================
+
+namespace
+{
+	UMaterialFunction* LoadMaterialFunction(const FString& Path)
+	{
+		UObject* Asset = UEditorAssetLibrary::LoadAsset(Path);
+		return Cast<UMaterialFunction>(Asset);
+	}
+
+	UMaterialFunction* LoadOrCreateMaterialFunction(const FString& Path, bool& bOutCreated)
+	{
+		bOutCreated = false;
+		if (UMaterialFunction* Existing = LoadMaterialFunction(Path)) return Existing;
+
+		FString ContentPath, AssetName;
+		if (!Path.Split(TEXT("/"), &ContentPath, &AssetName, ESearchCase::IgnoreCase, ESearchDir::FromEnd))
+		{
+			return nullptr;
+		}
+		IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools").Get();
+		UMaterialFunctionFactoryNew* Factory = NewObject<UMaterialFunctionFactoryNew>();
+		UMaterialFunction* Created = Cast<UMaterialFunction>(
+			AssetTools.CreateAsset(AssetName, ContentPath, UMaterialFunction::StaticClass(), Factory));
+		bOutCreated = (Created != nullptr);
+		return Created;
+	}
+
+	struct FFunctionBuildContext
+	{
+		UMaterialFunction* Function = nullptr;
+		TMap<FString, UMaterialExpression*> IdToExpression;
+	};
+
+	void IndexExistingFunctionExpressions(FFunctionBuildContext& Ctx)
+	{
+		for (UMaterialExpression* Expr : GetFunctionExpressions(Ctx.Function))
+		{
+			if (!Expr) continue;
+			const FString Id = GetArborId(Expr);
+			if (!Id.IsEmpty()) Ctx.IdToExpression.Add(Id, Expr);
+		}
+	}
+
+	bool ApplyFunctionExpressionSpec(FFunctionBuildContext& Ctx, const TSharedPtr<FJsonObject>& ExprSpec, FString& OutError)
+	{
+		const FString Id = ExprSpec->GetStringField(TEXT("id"));
+		if (Id.IsEmpty()) { OutError = TEXT("expression missing 'id'"); return false; }
+
+		const FString ClassName = ExprSpec->GetStringField(TEXT("class"));
+		UClass* ExprClass = ResolveExpressionClass(ClassName);
+		if (!ExprClass) { OutError = FString::Printf(TEXT("class not found: %s"), *ClassName); return false; }
+
+		int32 X = 0, Y = 0;
+		ExprSpec->TryGetNumberField(TEXT("x"), X);
+		ExprSpec->TryGetNumberField(TEXT("y"), Y);
+
+		UMaterialExpression* Expr = nullptr;
+		if (UMaterialExpression** Existing = Ctx.IdToExpression.Find(Id))
+		{
+			if ((*Existing)->GetClass() == ExprClass)
+			{
+				Expr = *Existing;
+				Expr->MaterialExpressionEditorX = X;
+				Expr->MaterialExpressionEditorY = Y;
+			}
+			else
+			{
+				UMaterialEditingLibrary::DeleteMaterialExpressionInFunction(Ctx.Function, *Existing);
+				Ctx.IdToExpression.Remove(Id);
+			}
+		}
+		if (!Expr)
+		{
+			Expr = UMaterialEditingLibrary::CreateMaterialExpressionInFunction(Ctx.Function, ExprClass, X, Y);
+			if (!Expr) { OutError = TEXT("CreateMaterialExpressionInFunction returned null"); return false; }
+			SetArborId(Expr, Id);
+			Ctx.IdToExpression.Add(Id, Expr);
+		}
+
+		const TSharedPtr<FJsonObject>* PropsObj = nullptr;
+		if (ExprSpec->TryGetObjectField(TEXT("properties"), PropsObj) && PropsObj && PropsObj->IsValid())
+		{
+			ApplyExpressionProperties(Expr, *PropsObj);
+		}
+		return true;
+	}
+
+	/** Collect FunctionInput/FunctionOutput summaries, ordered by SortPriority. */
+	void CollectFunctionIO(UMaterialFunction* Function,
+		TArray<TSharedPtr<FJsonValue>>& OutInputs, TArray<TSharedPtr<FJsonValue>>& OutOutputs)
+	{
+		struct FIn { FString Name; FString Type; int32 Sort; };
+		struct FOut { FString Name; int32 Sort; };
+		TArray<FIn> Ins;
+		TArray<FOut> Outs;
+		for (UMaterialExpression* Expr : GetFunctionExpressions(Function))
+		{
+			if (auto* In = Cast<UMaterialExpressionFunctionInput>(Expr))
+			{
+				FIn E;
+				E.Name = In->InputName.ToString();
+				E.Type = StaticEnum<EFunctionInputType>()->GetNameStringByValue((int64)In->InputType.GetValue());
+				E.Sort = In->SortPriority;
+				Ins.Add(E);
+			}
+			else if (auto* O = Cast<UMaterialExpressionFunctionOutput>(Expr))
+			{
+				FOut E;
+				E.Name = O->OutputName.ToString();
+				E.Sort = O->SortPriority;
+				Outs.Add(E);
+			}
+		}
+		Ins.Sort([](const FIn& A, const FIn& B) { return A.Sort < B.Sort; });
+		Outs.Sort([](const FOut& A, const FOut& B) { return A.Sort < B.Sort; });
+		for (const FIn& E : Ins)
+		{
+			const TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+			O->SetStringField(TEXT("name"), E.Name);
+			O->SetStringField(TEXT("type"), E.Type);
+			O->SetNumberField(TEXT("sort"), E.Sort);
+			OutInputs.Add(MakeShared<FJsonValueObject>(O));
+		}
+		for (const FOut& E : Outs)
+		{
+			const TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+			O->SetStringField(TEXT("name"), E.Name);
+			O->SetNumberField(TEXT("sort"), E.Sort);
+			OutOutputs.Add(MakeShared<FJsonValueObject>(O));
+		}
+	}
+}
+
+FString UArborMaterialGraphTools::QueryMaterialFunction(const FString& FunctionPath)
+{
+	UMaterialFunction* Func = LoadMaterialFunction(FunctionPath);
+	if (!Func) return JsonError(FString::Printf(TEXT("Material function not found: %s"), *FunctionPath));
+
+	const TArray<TObjectPtr<UMaterialExpression>>& Expressions = GetFunctionExpressions(Func);
+
+	// Stable index per expression (same scheme as QueryMaterial) so non-Arbor
+	// authored functions can still be referenced.
+	TMap<UMaterialExpression*, int32> ExprToIdx;
+	int32 NextIdx = 0;
+	for (UMaterialExpression* Expr : Expressions)
+	{
+		if (Expr) ExprToIdx.Add(Expr, NextIdx++);
+	}
+
+	TArray<TSharedPtr<FJsonValue>> ExprArr;
+	TArray<TSharedPtr<FJsonValue>> ConnArr;
+
+	for (UMaterialExpression* Expr : Expressions)
+	{
+		if (!Expr) continue;
+		const int32 ExprIdx = ExprToIdx[Expr];
+		const TSharedRef<FJsonObject> ExprObj = MakeShared<FJsonObject>();
+		const FString Id = GetArborId(Expr);
+		ExprObj->SetNumberField(TEXT("idx"), ExprIdx);
+		ExprObj->SetStringField(TEXT("id"), Id);
+		ExprObj->SetStringField(TEXT("class"), Expr->GetClass()->GetName());
+		ExprObj->SetNumberField(TEXT("x"), Expr->MaterialExpressionEditorX);
+		ExprObj->SetNumberField(TEXT("y"), Expr->MaterialExpressionEditorY);
+
+		const TSharedRef<FJsonObject> PropsObj = MakeShared<FJsonObject>();
+		for (TFieldIterator<FProperty> PropIt(Expr->GetClass()); PropIt; ++PropIt)
+		{
+			FProperty* P = *PropIt;
+			if (!P->HasAnyPropertyFlags(CPF_Edit)) continue;
+			TSharedPtr<FJsonValue> Val = ReadMaterialProperty(Expr, P);
+			if (Val.IsValid()) PropsObj->SetField(P->GetName(), Val);
+		}
+		ExprObj->SetObjectField(TEXT("properties"), PropsObj);
+		ExprArr.Add(MakeShared<FJsonValueObject>(ExprObj));
+
+		const int32 NumInputs = Expr->CountInputs();
+		UMaterialExpressionMaterialFunctionCall* ExprAsMFCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expr);
+		for (int32 i = 0; i < NumInputs; ++i)
+		{
+			FExpressionInput* Input = Expr->GetInput(i);
+			if (!Input) continue;
+			UMaterialExpression* FromExpr = Input->Expression;
+			if (!FromExpr) continue;
+			const int32* FromIdxPtr = ExprToIdx.Find(FromExpr);
+			const TSharedRef<FJsonObject> ConnObj = MakeShared<FJsonObject>();
+			ConnObj->SetStringField(TEXT("from_id"), GetArborId(FromExpr));
+			ConnObj->SetNumberField(TEXT("from_idx"), FromIdxPtr ? *FromIdxPtr : -1);
+			FString FromOutputName;
+			if (FromExpr->Outputs.IsValidIndex(Input->OutputIndex))
+			{
+				FromOutputName = FromExpr->Outputs[Input->OutputIndex].OutputName.ToString();
+			}
+			ConnObj->SetStringField(TEXT("from_output"), FromOutputName);
+			ConnObj->SetStringField(TEXT("to_id"), Id);
+			ConnObj->SetNumberField(TEXT("to_idx"), ExprIdx);
+
+			FName ToInputLookupName;
+			if (ExprAsMFCall)
+			{
+				ToInputLookupName = ExprAsMFCall->GetInputNameWithType(i, /*bWithType=*/false);
+			}
+			else
+			{
+				ToInputLookupName = UMaterialGraphNode::GetShortenPinName(Expr->GetInputName(i));
+			}
+			ConnObj->SetStringField(TEXT("to_input"), ToInputLookupName.IsNone() ? FString() : ToInputLookupName.ToString());
+			ConnArr.Add(MakeShared<FJsonValueObject>(ConnObj));
+		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> InputsArr, OutputsArr;
+	CollectFunctionIO(Func, InputsArr, OutputsArr);
+
+	TArray<TSharedPtr<FJsonValue>> Categories;
+	for (const FText& Cat : Func->LibraryCategoriesText)
+	{
+		Categories.Add(MakeShared<FJsonValueString>(Cat.ToString()));
+	}
+
+	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
+	Out->SetStringField(TEXT("function_path"), FunctionPath);
+	Out->SetStringField(TEXT("description"), Func->Description);
+	Out->SetBoolField(TEXT("expose_to_library"), Func->bExposeToLibrary != 0);
+	Out->SetArrayField(TEXT("library_categories"), Categories);
+	Out->SetArrayField(TEXT("expressions"), ExprArr);
+	Out->SetArrayField(TEXT("connections"), ConnArr);
+	Out->SetArrayField(TEXT("inputs"), InputsArr);
+	Out->SetArrayField(TEXT("outputs"), OutputsArr);
+	return JsonOk(Out);
+}
+
+FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
+{
+	TSharedPtr<FJsonObject> Spec = ParseJson(JsonSpec);
+	if (!Spec.IsValid()) return JsonError(TEXT("Invalid JSON spec"));
+
+	const FString FunctionPath = Spec->GetStringField(TEXT("path"));
+	if (FunctionPath.IsEmpty()) return JsonError(TEXT("spec.path is required"));
+
+	bool bCreated = false;
+	UMaterialFunction* Func = LoadOrCreateMaterialFunction(FunctionPath, bCreated);
+	if (!Func) return JsonError(FString::Printf(TEXT("Could not load or create material function: %s"), *FunctionPath));
+
+	// On a fresh asset, clear any factory/editor-seeded default nodes so the
+	// graph is exactly what the spec describes (the spec carries its own
+	// FunctionOutput). Existing functions are managed by sentinel ID instead.
+	if (bCreated)
+	{
+		UMaterialEditingLibrary::DeleteAllMaterialExpressionsInFunction(Func);
+	}
+
+	FFunctionBuildContext Ctx;
+	Ctx.Function = Func;
+
+	int32 ExpressionCount = 0;
+	int32 ConnectionCount = 0;
+
+	IndexExistingFunctionExpressions(Ctx);
+
+	// 1. Expressions (create / update in place).
+	TSet<FString> SpecIds;
+	const TArray<TSharedPtr<FJsonValue>>* ExprArr = nullptr;
+	if (Spec->TryGetArrayField(TEXT("expressions"), ExprArr) && ExprArr)
+	{
+		for (const TSharedPtr<FJsonValue>& V : *ExprArr)
+		{
+			const TSharedPtr<FJsonObject>& ExprSpec = V->AsObject();
+			if (!ExprSpec.IsValid()) continue;
+			FString Err;
+			if (!ApplyFunctionExpressionSpec(Ctx, ExprSpec, Err))
+			{
+				return JsonError(FString::Printf(TEXT("expression spec: %s"), *Err));
+			}
+			SpecIds.Add(ExprSpec->GetStringField(TEXT("id")));
+			++ExpressionCount;
+		}
+	}
+
+	// 2. Orphan cleanup.
+	TArray<FString> ToRemove;
+	for (const auto& Pair : Ctx.IdToExpression)
+	{
+		if (!SpecIds.Contains(Pair.Key)) ToRemove.Add(Pair.Key);
+	}
+	for (const FString& Id : ToRemove)
+	{
+		if (UMaterialExpression* Expr = Ctx.IdToExpression.FindRef(Id))
+		{
+			UMaterialEditingLibrary::DeleteMaterialExpressionInFunction(Func, Expr);
+			Ctx.IdToExpression.Remove(Id);
+		}
+	}
+
+	// 3. Connections (expression-to-expression; FunctionOutput's input pin is
+	//    unnamed, so wiring into an output uses an empty to_input).
+	const TArray<TSharedPtr<FJsonValue>>* ConnArr = nullptr;
+	if (Spec->TryGetArrayField(TEXT("connections"), ConnArr) && ConnArr)
+	{
+		for (const TSharedPtr<FJsonValue>& V : *ConnArr)
+		{
+			const TSharedPtr<FJsonObject>& C = V->AsObject();
+			if (!C.IsValid()) continue;
+			const FString FromId = C->GetStringField(TEXT("from"));
+			const FString ToId = C->GetStringField(TEXT("to"));
+			FString FromOut; C->TryGetStringField(TEXT("from_output"), FromOut);
+			FString ToIn; C->TryGetStringField(TEXT("to_input"), ToIn);
+			UMaterialExpression* From = Ctx.IdToExpression.FindRef(FromId);
+			UMaterialExpression* To = Ctx.IdToExpression.FindRef(ToId);
+			if (!From || !To) continue;
+			if (UMaterialEditingLibrary::ConnectMaterialExpressions(From, FromOut, To, ToIn))
+				++ConnectionCount;
+		}
+	}
+
+	// 4. Function metadata (no flags / shading model on a function).
+	FString Description;
+	if (Spec->TryGetStringField(TEXT("description"), Description)) Func->Description = Description;
+
+	bool bExpose = false;
+	if (Spec->TryGetBoolField(TEXT("expose_to_library"), bExpose)) Func->bExposeToLibrary = bExpose ? 1 : 0;
+
+	const TArray<TSharedPtr<FJsonValue>>* CatArr = nullptr;
+	if (Spec->TryGetArrayField(TEXT("library_categories"), CatArr) && CatArr)
+	{
+		Func->LibraryCategoriesText.Reset();
+		for (const TSharedPtr<FJsonValue>& V : *CatArr)
+		{
+			Func->LibraryCategoriesText.Add(FText::FromString(V->AsString()));
+		}
+	}
+
+	Func->MarkPackageDirty();
+
+	// 5. Finalise: rebuild input/output metadata and propagate to any materials
+	//    referencing this function. Functions do not self-recompile.
+	UMaterialEditingLibrary::UpdateMaterialFunction(Func, nullptr);
+	UEditorAssetLibrary::SaveLoadedAsset(Func);
+
+	TArray<TSharedPtr<FJsonValue>> InputsArr, OutputsArr;
+	CollectFunctionIO(Func, InputsArr, OutputsArr);
+
+	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
+	Out->SetStringField(TEXT("function_path"), FunctionPath);
+	Out->SetNumberField(TEXT("expression_count"), ExpressionCount);
+	Out->SetNumberField(TEXT("connection_count"), ConnectionCount);
+	Out->SetArrayField(TEXT("inputs"), InputsArr);
+	Out->SetArrayField(TEXT("outputs"), OutputsArr);
 	return JsonOk(Out);
 }

@@ -167,4 +167,57 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Arbor|MaterialGraph")
 	static FString BuildMaterial(const FString& JsonSpec);
+
+	// ---- Phase 7: Material Function authoring ----
+
+	/**
+	 * Dump a Material Function's expression graph as JSON. Mirrors QueryMaterial,
+	 * but a function has no material-output pins: its outputs are
+	 * FunctionOutput expressions and its inputs are FunctionInput expressions.
+	 *
+	 * @param FunctionPath  e.g. "/Game/Materials/Functions/MF_SDF_Circle"
+	 * @return JSON: {success, function_path, description, expose_to_library,
+	 *                library_categories:[...],
+	 *                expressions:[{id, class, properties, x, y}],
+	 *                connections:[{from_id, from_output, to_id, to_input}],
+	 *                inputs:[{name, type, sort}], outputs:[{name, sort}]}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|MaterialGraph")
+	static FString QueryMaterialFunction(const FString& FunctionPath);
+
+	/**
+	 * Build or update a complete UMaterialFunction from a JSON spec. Idempotent
+	 * by sentinel ID, exactly like BuildMaterial. Reuses the same expression /
+	 * connection machinery; the differences from BuildMaterial are:
+	 *   - the asset is a UMaterialFunction (UMaterialFunctionFactoryNew), not a UMaterial
+	 *   - there is NO "outputs"/"flags"/"shading_model" block. A function's
+	 *     outputs are MaterialExpressionFunctionOutput nodes and its inputs are
+	 *     MaterialExpressionFunctionInput nodes; wire math into a FunctionOutput's
+	 *     (unnamed) input pin via the normal "connections" array with empty to_input.
+	 *   - finalised with UMaterialEditingLibrary::UpdateMaterialFunction (functions
+	 *     don't self-recompile; referencing materials do).
+	 *
+	 * Spec schema:
+	 * {
+	 *   "path": "/Game/Materials/Functions/MF_SDF_Circle",
+	 *   "description": "Signed distance to a circle; negative inside.",
+	 *   "expose_to_library": true,
+	 *   "library_categories": ["Procedural", "SDF"],
+	 *   "expressions": [
+	 *     {"id":"in_uv","class":"MaterialExpressionFunctionInput",
+	 *      "properties":{"InputName":"UV","InputType":"FunctionInput_Vector2","SortPriority":0}},
+	 *     {"id":"out_d","class":"MaterialExpressionFunctionOutput",
+	 *      "properties":{"OutputName":"Distance","SortPriority":0}},
+	 *     ...
+	 *   ],
+	 *   "connections": [
+	 *     {"from":"len","from_output":"","to":"out_d","to_input":""}, ...
+	 *   ]
+	 * }
+	 *
+	 * @return JSON: {success, function_path, expression_count, connection_count,
+	 *                inputs:[names], outputs:[names]}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|MaterialGraph")
+	static FString BuildMaterialFunction(const FString& JsonSpec);
 };

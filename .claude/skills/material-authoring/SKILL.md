@@ -53,11 +53,31 @@ python scripts/search_catalog.py --tags "<tag1> <tag2>" --traits "<trait1> <trai
 
 It prints the top 3 matches with their scores.
 
+The catalog holds two entry types:
+
+- `reference_material` - a whole material with an inline `BuildMaterial` spec (the default; what you adapt and rebuild).
+- `pattern` - a reusable **Material Function** referenced by `mf_path`, with `inputs`/`outputs` describing its interface. Compose these into a material instead of inlining them (see Step 5b).
+
+Filter to one type with `--type reference_material` or `--type pattern`. Omit `--type` to see both. A `pattern` result carries `mf_path`, `inputs`, and `outputs` so you can wire it directly.
+
 ## Step 5: pick the best match
 
 - One entry clearly matches -> use its `spec` as your starting point
 - Multiple entries roughly match -> pick the closest; mention the alternatives in your response
 - No entries match well -> tell the user the closest entry; ask whether to adapt it or go a different direction. Don't silently produce something wrong.
+
+## Step 5b: compose patterns (Material Functions)
+
+When the look decomposes into reusable pieces (an SDF shape for a UI fill, FBM noise driving colour variation, a posterize step for cel shading), reference `pattern` entries instead of inlining their subgraphs. To use a pattern in your material spec, add a `MaterialFunctionCall` expression pointing at its `mf_path`, then wire the function's named inputs/outputs:
+
+```python
+{"id": "circle", "class": "MaterialExpressionMaterialFunctionCall",
+ "properties": {"MaterialFunction": "/Game/Assets/Materials/Functions/Procedural/MF_SDF_Circle"}},
+```
+
+Arbor's post-property hook calls `SetMaterialFunction()` so the call's input/output pins resolve by the function's `InputName`/`OutputName` (from the pattern entry's `inputs`/`outputs`). Connect into those pin names like any other node; one `MaterialFunctionCall` replaces a whole subgraph and stays in sync when the function is edited.
+
+The procedural primitives live under `/Game/Assets/Materials/Functions/Procedural/` (SDF shapes, gradients, posterize, noise). Search them with `--type pattern`.
 
 ## Step 6: adapt the spec
 
@@ -88,6 +108,33 @@ Then report:
 
 If the build fails, surface the error and propose a fix - probably a missing texture or an unsupported expression class.
 
+## Authoring reusable primitives (Material Functions)
+
+To add a new composable primitive to the catalog, author a `UMaterialFunction` then register it as a `pattern` entry:
+
+```python
+import arbor.materials as mat
+mat.build_material_function({
+    "path": "/Game/Assets/Materials/Functions/Procedural/MF_<Name>",
+    "description": "...",
+    "expose_to_library": True,
+    "library_categories": ["Procedural"],
+    "expressions": [
+        {"id": "in_uv", "class": "MaterialExpressionFunctionInput",
+         "properties": {"InputName": "UV", "InputType": "FunctionInput_Vector2", "SortPriority": 0}},
+        {"id": "out", "class": "MaterialExpressionFunctionOutput",
+         "properties": {"OutputName": "Result", "SortPriority": 0}},
+        # ... math nodes ...
+    ],
+    "connections": [ {"from": "...", "to": "out", "to_input": ""} ],  # FunctionOutput input pin is unnamed
+})
+# then register it as a catalog pattern entry:
+from extraction import extract_function
+extract_function.extract("/Game/Assets/Materials/Functions/Procedural/MF_<Name>")
+```
+
+A function has no material-output pins or flags: its inputs are `MaterialExpressionFunctionInput` nodes and its outputs are `MaterialExpressionFunctionOutput` nodes. Use `mat.query_material_function(path)` to inspect an existing one, and `mat.list_expression_types("...")` / `mat.get_expression_class_params("...")` to discover node classes and pin names rather than guessing.
+
 ## Reference files
 
 - [<project>/MaterialCatalog/vocabulary.md](<project>/MaterialCatalog/vocabulary.md) - tag and trait vocabulary
@@ -95,7 +142,7 @@ If the build fails, surface the error and propose a fix - probably a missing tex
 - [<project>/MaterialCatalog/README.md](<project>/MaterialCatalog/README.md) - entry shape + how to add new ones
 - [references/pbr_quick.md](references/pbr_quick.md) - PBR defaults cheat sheet
 - [references/shading_models.md](references/shading_models.md) - shading model selection
-- [extraction/](extraction/) - extract/extract_batch/validate_roundtrip scripts for growing the catalog
+- [extraction/](extraction/) - extract_material / extract_function / extract_batch / validate_roundtrip scripts for growing the catalog
 
 ## Common mistakes
 

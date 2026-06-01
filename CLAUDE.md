@@ -220,7 +220,8 @@ All codex data asset types (in `ArborGameContextTypes.h`, `ArborCharacterTypes.h
 
 | Area | Limitation |
 |------|-----------|
-| **Material editor** | `get_material_expressions()` **hangs/freezes** — never call it. Use Material Instances instead. |
+| **Material editor** | `get_material_expressions()` **hangs/freezes** — never call it. Use `query_material` / Material Instances instead. |
+| **Material thumbnails** | Freshly-built materials render as the default lit-grey material until shaders finish compiling. Run `r.ShaderCompiler.AsyncCompiling 0` + `recompile_material(m)` before `render_thumbnail`. See "Material Graph & Function Editing > Gotchas". |
 | **Foliage painting** | HISM fallback instances won't appear in Foliage editor paint tool but render correctly. |
 | **NavMesh** | `add_navmesh_volume()` spawns the volume but rebuild may not trigger. Call `arbor.nav.build_paths()`. |
 | **GLB/glTF orientation** | Meshy GLB uses Y-up; UE5 uses Z-up. Fix rotations after import. |
@@ -424,6 +425,40 @@ preview.preview_mesh("/Game/Meshes/SM_Rock")
 ```
 
 Then ask the user to look at UE5 and choose. Clean up: `preview.remove_preview_sphere()`.
+
+---
+
+## Material Graph & Function Editing
+
+Granular material editing lives in `UArborMaterialGraphTools` (MCP `ue5_materials`, or `arbor.materials`). It edits a material's expression graph by stable sentinel IDs stored in each expression's `Desc` field (`__arbor_id:<id>`), surviving save/reload. `build_material(spec)` builds/updates a whole material idempotently in one `FMaterialUpdateContext`.
+
+### Material Functions (authoring)
+
+`build_material_function(spec)` / `query_material_function(path)` author a `UMaterialFunction` with the same spec shape as `build_material`, with these differences:
+
+- No `flags`/`shading_model`/`outputs` block. A function's inputs are `MaterialExpressionFunctionInput` nodes and its outputs are `MaterialExpressionFunctionOutput` nodes - both live in the graph.
+- **A `FunctionOutput`'s input pin is unnamed** - wire into it with an empty `to_input` (`""`). Binary math nodes (Add/Subtract/Multiply/Divide/Distance/Max/Min/DotProduct) use `"A"`/`"B"`; single-input nodes (Floor/Abs/Saturate/OneMinus/Sine/Cosine/Frac/ComponentMask) use `""`.
+- `FunctionInput` props: `InputName` (FName), `InputType` (e.g. `FunctionInput_Vector2`/`_Vector3`/`_Scalar`), `SortPriority`. `FunctionOutput` props: `OutputName`, `SortPriority`.
+- Returns `{inputs:[{name,type,sort}], outputs:[{name,sort}], expression_count, connection_count}`. `connection_count` < expected means a `to_input` pin name didn't resolve - inspect with `query_material_function`.
+
+To **use** a function in a material, add a `MaterialExpressionMaterialFunctionCall` with `properties.MaterialFunction = "/Game/.../MF_X"`; a post-property hook rebuilds its input/output pins so you can wire them by the function's `InputName`/`OutputName`. Compose - don't inline.
+
+A procedural-primitives library (SDF shapes, gradients, posterize, remap, perlin/worley/FBM/value noise, UV tile/rotate/wave) lives under `/Game/Assets/Materials/Functions/Procedural/` and is cataloged (see below).
+
+### Catalog `pattern` entries
+
+The material catalog (`<project>/MaterialCatalog/`, browsed via **Tools > Arbor > Material Catalog**) now has two entry types: `reference_material` (a whole material, inline `spec`, in `source`) and `pattern` (a Material Function referenced by `mf_path`, with `inputs`/`outputs`). `search_catalog.py --type pattern|reference_material` filters; `extraction/extract_function.py` registers an MF as a pattern. Missing `type` is treated as `reference_material` (backward compatible).
+
+### Gotchas (material editing)
+
+- **A material rendering as the default lit-grey material = it failed to compile.** Do NOT guess why from screenshots. `query_material(path)` returns a `compile_errors` array (e.g. `"(Node ComponentMask) Missing ComponentMask input"`) - read it. Empty array = compiled clean. Recompile first if you just edited the graph. This is the fastest material-debugging tool by far.
+  - Watch for **silently-incomplete connection lists**: `build_material`'s `connection_count` only counts the connections you *listed*, so a forgotten `uv -> node` edge still reports "wired". If a node says "Missing input", you dropped its connection.
+- **Thumbnails of freshly-built materials render as the default lit-grey material** because shaders compile asynchronously. Before `render_thumbnail`, run `r.ShaderCompiler.AsyncCompiling 0` (console) then `MaterialEditingLibrary.recompile_material(m)` **in the same call**, then render. A still-lit-grey-but-shaded sphere = shaders not ready, NOT a bad material.
+- **Glow/bloom needs HDR emissive.** A plain colored emissive reads flat/washed; multiply emissive by ~8-30 so it blooms. This is what makes neon/corruption/effects "glow".
+- **Decals (UE 5.7):** `DecalBlendMode` is deprecated ("No longer used") - decals are governed by the material's `BlendMode` + which outputs are connected. Set the domain via `m.set_editor_property("material_domain", unreal.MaterialDomain.MD_DEFERRED_DECAL)` (the domain IS settable from Python; the old blend-mode enum is not). Emissive decals (BlendMode Translucent + Emissive/Opacity outputs + HDR emissive) read on any surface; project with a `DecalActor` rotated `pitch=-90` (X points down) and tune `decal_size` (X=depth, Y/Z=footprint).
+- **Dynamic material instance ordering:** call `set_decal_material(m)` / `set_material(0, m)` **before** `create_dynamic_material_instance()`, or the MID wraps the *default* material and your parameter sets silently do nothing.
+- **Engine `MaterialExpressionNoise` Position input is the first (unnamed) pin** - wire with `to_input=""`, not `"Position"`, and feed a Vector3 (append a 0 onto a Vector2 UV; a Vector2 into the Vector3 input fails coercion and the connection is silently dropped).
+- **Time-driven animation** (panner flow, sine pulse/flicker via `MaterialExpressionTime`+`Sine`) does not show in a static thumbnail/screenshot - it only animates in PIE/standalone. Keep a brightness floor so stills stay lit.
 
 ---
 
