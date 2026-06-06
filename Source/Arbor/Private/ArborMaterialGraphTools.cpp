@@ -25,6 +25,7 @@
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialExpressionFunctionInput.h"
 #include "Materials/MaterialExpressionFunctionOutput.h"
+#include "Materials/MaterialExpressionComponentMask.h"
 #include "Factories/MaterialFunctionFactoryNew.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialParameters.h"
@@ -382,6 +383,20 @@ namespace
 	void ApplyExpressionProperties(UMaterialExpression* Expr, const TSharedPtr<FJsonObject>& Properties)
 	{
 		if (!Expr || !Properties.IsValid()) return;
+
+		// ComponentMask's CDO defaults to R+G. If the spec names any channel, make
+		// it authoritative by clearing all four first, so {"R":true} yields R-only
+		// instead of silently leaving G on (which widens the output and breaks the
+		// graph with no compile error).
+		if (UMaterialExpressionComponentMask* Mask = Cast<UMaterialExpressionComponentMask>(Expr))
+		{
+			if (Properties->HasField(TEXT("R")) || Properties->HasField(TEXT("G"))
+				|| Properties->HasField(TEXT("B")) || Properties->HasField(TEXT("A")))
+			{
+				Mask->R = Mask->G = Mask->B = Mask->A = 0;
+			}
+		}
+
 		for (const auto& Pair : Properties->Values)
 		{
 			FString Err;
@@ -1023,6 +1038,35 @@ namespace
 	}
 }
 
+// Connect From -> To, recording any connection that cannot be resolved instead
+// of dropping it silently. When a named to_input fails on a single-input target
+// (Abs/Length/ComponentMask/Sine/RgbToHsv/etc. name their sole pin ""), retry
+// against that lone pin so C++-style pin names ("Input"/"VectorInput") also work.
+// Returns true if the wire was made; otherwise appends {from,to,to_input} to Unresolved.
+static bool ConnectExpressionsTracked(
+	UMaterialExpression* From, const FString& FromOut,
+	UMaterialExpression* To, const FString& ToIn,
+	const FString& FromId, const FString& ToId,
+	TArray<TSharedPtr<FJsonValue>>& Unresolved)
+{
+	if (UMaterialEditingLibrary::ConnectMaterialExpressions(From, FromOut, To, ToIn))
+	{
+		return true;
+	}
+	// Single-input fallback: the sole pin is reachable via an empty name.
+	if (!ToIn.IsEmpty() && To->CountInputs() == 1
+		&& UMaterialEditingLibrary::ConnectMaterialExpressions(From, FromOut, To, FString()))
+	{
+		return true;
+	}
+	const TSharedRef<FJsonObject> U = MakeShared<FJsonObject>();
+	U->SetStringField(TEXT("from"), FromId);
+	U->SetStringField(TEXT("to"), ToId);
+	U->SetStringField(TEXT("to_input"), ToIn);
+	Unresolved.Add(MakeShared<FJsonValueObject>(U));
+	return false;
+}
+
 FString UArborMaterialGraphTools::BuildMaterial(const FString& JsonSpec)
 {
 	TSharedPtr<FJsonObject> Spec = ParseJson(JsonSpec);
@@ -1039,6 +1083,7 @@ FString UArborMaterialGraphTools::BuildMaterial(const FString& JsonSpec)
 
 	int32 ExpressionCount = 0;
 	int32 ConnectionCount = 0;
+	TArray<TSharedPtr<FJsonValue>> Unresolved;
 
 	{
 		// Scope the FMaterialUpdateContext so its destructor (which triggers
@@ -1097,7 +1142,7 @@ FString UArborMaterialGraphTools::BuildMaterial(const FString& JsonSpec)
 				UMaterialExpression* From = Ctx.IdToExpression.FindRef(FromId);
 				UMaterialExpression* To = Ctx.IdToExpression.FindRef(ToId);
 				if (!From || !To) continue;
-				if (UMaterialEditingLibrary::ConnectMaterialExpressions(From, FromOut, To, ToIn))
+				if (ConnectExpressionsTracked(From, FromOut, To, ToIn, FromId, ToId, Unresolved))
 					++ConnectionCount;
 			}
 		}
@@ -1152,6 +1197,7 @@ FString UArborMaterialGraphTools::BuildMaterial(const FString& JsonSpec)
 	Out->SetStringField(TEXT("material_path"), MaterialPath);
 	Out->SetNumberField(TEXT("expression_count"), ExpressionCount);
 	Out->SetNumberField(TEXT("connection_count"), ConnectionCount);
+	if (Unresolved.Num() > 0) Out->SetArrayField(TEXT("unresolved_connections"), Unresolved);
 	return JsonOk(Out);
 }
 
@@ -1504,6 +1550,7 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 
 	int32 ExpressionCount = 0;
 	int32 ConnectionCount = 0;
+	TArray<TSharedPtr<FJsonValue>> Unresolved;
 
 	IndexExistingFunctionExpressions(Ctx);
 
@@ -1557,7 +1604,7 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 			UMaterialExpression* From = Ctx.IdToExpression.FindRef(FromId);
 			UMaterialExpression* To = Ctx.IdToExpression.FindRef(ToId);
 			if (!From || !To) continue;
-			if (UMaterialEditingLibrary::ConnectMaterialExpressions(From, FromOut, To, ToIn))
+			if (ConnectExpressionsTracked(From, FromOut, To, ToIn, FromId, ToId, Unresolved))
 				++ConnectionCount;
 		}
 	}
@@ -1595,5 +1642,6 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 	Out->SetNumberField(TEXT("connection_count"), ConnectionCount);
 	Out->SetArrayField(TEXT("inputs"), InputsArr);
 	Out->SetArrayField(TEXT("outputs"), OutputsArr);
+	if (Unresolved.Num() > 0) Out->SetArrayField(TEXT("unresolved_connections"), Unresolved);
 	return JsonOk(Out);
 }
