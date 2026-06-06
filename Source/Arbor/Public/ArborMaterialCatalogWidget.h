@@ -23,7 +23,9 @@ struct FArborCatalogEntry
 {
 	FString Id;
 	FString YamlPath;            // relative to entries/
-	FString Source;              // /Game/.../M_X
+	FString Type;                // "reference_material" (default) or "pattern"
+	FString Source;              // /Game/.../M_X  (empty for pattern entries)
+	FString MFPath;              // /Game/.../MF_X (set for pattern entries only)
 	FString Status;              // ok / needs_review / bad / deprecated / broken
 	FString Description;
 	FString ShadingModel;

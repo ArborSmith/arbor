@@ -71,7 +71,11 @@ def entry_to_index_record(entry: dict, yaml_filename: str) -> dict:
     return {
         "id": eid,
         "yaml_path": yaml_filename,
+        # type: "reference_material" (a UMaterial in `source`) or "pattern"
+        # (a UMaterialFunction in `mf_path`). Missing -> reference_material.
+        "type": entry.get("type", "reference_material"),
         "source": entry.get("source", ""),
+        "mf_path": entry.get("mf_path", ""),
         "status": entry.get("status", "ok"),
         "tags": entry.get("tags") or [],
         "visual_traits": entry.get("visual_traits") or [],
@@ -136,7 +140,12 @@ def refresh_index(entries_dir: str | None = None,
                 continue
 
             if detect_broken_sources:
-                src = entry.get("source", "")
+                # Pattern entries point at a Material Function (mf_path); all
+                # other entries at a Material (source). Check whichever applies.
+                if entry.get("type") == "pattern":
+                    src = entry.get("mf_path", "")
+                else:
+                    src = entry.get("source", "")
                 ok = _asset_resolves(src) if src else True
                 current = entry.get("status", "ok")
                 changed = False

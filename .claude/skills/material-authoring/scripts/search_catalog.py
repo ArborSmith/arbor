@@ -74,9 +74,14 @@ def score(entry: dict, tags: set[str], traits: set[str]) -> int:
 
 def search(tags: list[str], traits: list[str],
            top: int = 3, catalog_dir: str = CATALOG_DIR,
-           include_bad: bool = False) -> list[dict]:
+           include_bad: bool = False, type_filter: str | None = None) -> list[dict]:
     excluded = set() if include_bad else EXCLUDED_STATUSES_DEFAULT
     entries = load_catalog(catalog_dir, excluded_statuses=excluded)
+    # Optional filter by entry type ("reference_material" | "pattern"). Entries
+    # with no `type` field are treated as "reference_material".
+    if type_filter:
+        entries = [e for e in entries
+                   if e.get("type", "reference_material") == type_filter]
     tags_set = set(tags or [])
     traits_set = set(traits or [])
     scored = [(score(e, tags_set, traits_set), e) for e in entries]
@@ -85,14 +90,21 @@ def search(tags: list[str], traits: list[str],
     for s, e in scored[:top]:
         if s == 0:
             continue
+        etype = e.get("type", "reference_material")
         results.append({
             "id": e.get("id"),
             "score": s,
+            "type": etype,
             "status": e.get("status", "ok"),
             "tags": e.get("tags") or [],
             "visual_traits": e.get("visual_traits") or [],
             "description": e.get("description", ""),
             "mi_compatible": e.get("mi_compatible", False),
+            # For pattern entries, surface the MF asset + its IO so the caller
+            # can compose it via a MaterialFunctionCall without re-reading YAML.
+            "mf_path": e.get("mf_path", "") if etype == "pattern" else "",
+            "inputs": e.get("inputs") or [] if etype == "pattern" else [],
+            "outputs": e.get("outputs") or [] if etype == "pattern" else [],
             "yaml_path": e.get("_path"),
         })
     return results
@@ -107,6 +119,9 @@ def main():
                     help="Path to catalog entries/ dir. Defaults to <project>/MaterialCatalog/entries/.")
     ap.add_argument("--include-bad", action="store_true",
                     help="Include entries with status=bad/deprecated/broken (default: skip)")
+    ap.add_argument("--type", default=None, dest="type_filter",
+                    choices=["reference_material", "pattern"],
+                    help="Restrict results to one entry type (default: all types)")
     args = ap.parse_args()
 
     catalog_dir = args.catalog or _default_catalog_dir()
@@ -120,6 +135,7 @@ def main():
         top=args.top,
         catalog_dir=catalog_dir,
         include_bad=args.include_bad,
+        type_filter=args.type_filter,
     )
     print(json.dumps(results, indent=2))
 

@@ -9,7 +9,7 @@ export const materialsTool: CategoryTool = {
     "and edit material graphs via granular primitives (add/remove/connect expressions) or the " +
     "build_material orchestrator that takes a full JSON spec.",
 
-  readOnlyActions: ["query", "list_expression_types", "get_expression_class_params"],
+  readOnlyActions: ["query", "list_expression_types", "get_expression_class_params", "query_function"],
 
   actionParams: {
     create: {
@@ -85,6 +85,14 @@ export const materialsTool: CategoryTool = {
       summary: "Build or update a complete material from a JSON spec (idempotent). See build_material docs for schema.",
       required: ["spec"],
     },
+    query_function: {
+      summary: "Dump a Material Function's graph as JSON (expressions, connections, inputs, outputs)",
+      required: ["function_path"],
+    },
+    build_function: {
+      summary: "Build or update a complete Material Function from a JSON spec (idempotent). No outputs/flags block; inputs/outputs are FunctionInput/FunctionOutput nodes. See BuildMaterialFunction docs for schema.",
+      required: ["spec"],
+    },
   },
 
   schema: {
@@ -130,7 +138,8 @@ export const materialsTool: CategoryTool = {
     from_output: z.string().optional().describe("Source output pin name (empty = first)"),
     to_input: z.string().optional().describe("Target input pin name (empty = first; warning if target has >1 inputs)"),
     property: z.string().optional().describe("Material output property: BaseColor/Normal/Roughness/Metallic/EmissiveColor/Opacity/AmbientOcclusion/WorldPositionOffset"),
-    spec: z.record(z.any()).optional().describe("Full BuildMaterial spec — see ArborMaterialGraphTools.h for schema"),
+    spec: z.record(z.any()).optional().describe("Full BuildMaterial / BuildMaterialFunction spec — see ArborMaterialGraphTools.h for schema"),
+    function_path: z.string().optional().describe("Material Function asset path for query_function (e.g. /Game/Materials/Functions/MF_SDF_Circle)"),
   },
 
   actions: {
@@ -301,6 +310,22 @@ export const materialsTool: CategoryTool = {
     async build(p) {
       if (!p.spec) throw new Error("spec required");
       return callArborJson("ArborMaterialGraphTools", "BuildMaterial", {
+        JsonSpec: JSON.stringify(p.spec),
+      });
+    },
+
+    // ---- Material Function authoring (Phase 7) ----
+
+    async query_function(p) {
+      if (!p.function_path) throw new Error("function_path required");
+      return callArborJson("ArborMaterialGraphTools", "QueryMaterialFunction", {
+        FunctionPath: p.function_path as string,
+      });
+    },
+
+    async build_function(p) {
+      if (!p.spec) throw new Error("spec required");
+      return callArborJson("ArborMaterialGraphTools", "BuildMaterialFunction", {
         JsonSpec: JSON.stringify(p.spec),
       });
     },

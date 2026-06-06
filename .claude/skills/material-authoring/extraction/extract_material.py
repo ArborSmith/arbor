@@ -190,6 +190,7 @@ def extract(asset_path: str, out_dir: str | None = None, provenance: str = "") -
     flags = query_result.get("flags", {})
     entry = {
         "id": entry_id,
+        "type": "reference_material",
         "source": asset_path,
         "status": "needs_review",
         "shading_model": flags.get("shading_model", "DefaultLit"),
