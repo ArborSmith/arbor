@@ -1191,6 +1191,16 @@ FString UArborMaterialGraphTools::BuildMaterial(const FString& JsonSpec)
 		// UpdateCtx destructor here triggers the recompile.
 	}
 
+	// Auto-arrange nodes (default on) so Arbor-built graphs aren't a pile of
+	// overlapping nodes. Layout only moves nodes - no recompile. Overrides any
+	// manual x/y; pass "auto_layout": false to keep hand-placed positions.
+	bool bAutoLayout = true;
+	Spec->TryGetBoolField(TEXT("auto_layout"), bAutoLayout);
+	if (bAutoLayout)
+	{
+		UMaterialEditingLibrary::LayoutMaterialExpressions(Mat);
+	}
+
 	UEditorAssetLibrary::SaveLoadedAsset(Mat);
 
 	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
@@ -1631,6 +1641,16 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 	// 5. Finalise: rebuild input/output metadata and propagate to any materials
 	//    referencing this function. Functions do not self-recompile.
 	UMaterialEditingLibrary::UpdateMaterialFunction(Func, nullptr);
+
+	// Auto-arrange nodes (default on). Overrides manual x/y; pass
+	// "auto_layout": false to keep hand-placed positions.
+	bool bAutoLayout = true;
+	Spec->TryGetBoolField(TEXT("auto_layout"), bAutoLayout);
+	if (bAutoLayout)
+	{
+		UMaterialEditingLibrary::LayoutMaterialFunctionExpressions(Func);
+	}
+
 	UEditorAssetLibrary::SaveLoadedAsset(Func);
 
 	TArray<TSharedPtr<FJsonValue>> InputsArr, OutputsArr;
@@ -1643,5 +1663,48 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 	Out->SetArrayField(TEXT("inputs"), InputsArr);
 	Out->SetArrayField(TEXT("outputs"), OutputsArr);
 	if (Unresolved.Num() > 0) Out->SetArrayField(TEXT("unresolved_connections"), Unresolved);
+	return JsonOk(Out);
+}
+
+// ============================================================================
+// LayoutMaterial - auto-arrange a material / material function's nodes
+// ============================================================================
+
+FString UArborMaterialGraphTools::LayoutMaterial(const FString& JsonParams)
+{
+	TSharedPtr<FJsonObject> Params = ParseJson(JsonParams);
+	if (!Params.IsValid()) return JsonError(TEXT("Invalid JSON"));
+
+	FString Path;
+	if (!Params->TryGetStringField(TEXT("path"), Path))
+		Params->TryGetStringField(TEXT("material_path"), Path);
+	if (Path.IsEmpty()) return JsonError(TEXT("path is required"));
+
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(Path);
+	if (!Asset) return JsonError(FString::Printf(TEXT("Asset not found: %s"), *Path));
+
+	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
+	Out->SetStringField(TEXT("path"), Path);
+
+	if (UMaterial* Mat = Cast<UMaterial>(Asset))
+	{
+		UMaterialEditingLibrary::LayoutMaterialExpressions(Mat);
+		Mat->MarkPackageDirty();
+		Out->SetStringField(TEXT("type"), TEXT("material"));
+		Out->SetNumberField(TEXT("expression_count"), GetExpressions(Mat).Num());
+	}
+	else if (UMaterialFunction* Func = Cast<UMaterialFunction>(Asset))
+	{
+		UMaterialEditingLibrary::LayoutMaterialFunctionExpressions(Func);
+		Func->MarkPackageDirty();
+		Out->SetStringField(TEXT("type"), TEXT("material_function"));
+		Out->SetNumberField(TEXT("expression_count"), GetFunctionExpressions(Func).Num());
+	}
+	else
+	{
+		return JsonError(FString::Printf(TEXT("Asset is not a Material or MaterialFunction: %s"), *Path));
+	}
+
+	UEditorAssetLibrary::SaveLoadedAsset(Asset);
 	return JsonOk(Out);
 }

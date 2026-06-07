@@ -302,6 +302,17 @@ def build_material(spec):
     return _call_cpp(unreal.ArborMaterialGraphTools.build_material(json.dumps(spec)))
 
 
+def layout_material(path):
+    """Auto-arrange a material or material function's nodes into a readable layout.
+
+    Detects whether `path` is a Material or a MaterialFunction and runs UE's
+    built-in LayoutMaterialExpressions / LayoutMaterialFunctionExpressions, then
+    saves. build_material / build_material_function already do this at the end
+    unless the spec sets "auto_layout": False (which preserves manual x/y).
+    """
+    return _call_cpp(unreal.ArborMaterialGraphTools.layout_material(json.dumps({"path": path})))
+
+
 def build_material_checked(spec):
     """Build a material AND verify it actually compiled, in one call.
 

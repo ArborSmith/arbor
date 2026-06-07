@@ -220,4 +220,20 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Arbor|MaterialGraph")
 	static FString BuildMaterialFunction(const FString& JsonSpec);
+
+	// ---- Graph layout ----
+
+	/**
+	 * Auto-arrange a material's or material function's expression nodes into a
+	 * readable left-to-right column layout, using UE's built-in
+	 * LayoutMaterialExpressions / LayoutMaterialFunctionExpressions. Detects which
+	 * asset type the path is. Layout only moves nodes (editor metadata), so no
+	 * recompile happens. build_material / build_material_function also run this
+	 * automatically at the end unless the spec sets "auto_layout": false.
+	 *
+	 * @param JsonParams  {"path": "/Game/.../M_Foo"}  ("material_path" also accepted)
+	 * @return JSON: {success, path, type, expression_count}
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Arbor|MaterialGraph")
+	static FString LayoutMaterial(const FString& JsonParams);
 };
