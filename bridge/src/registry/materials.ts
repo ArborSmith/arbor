@@ -93,6 +93,10 @@ export const materialsTool: CategoryTool = {
       summary: "Build or update a complete Material Function from a JSON spec (idempotent). No outputs/flags block; inputs/outputs are FunctionInput/FunctionOutput nodes. See BuildMaterialFunction docs for schema.",
       required: ["spec"],
     },
+    layout: {
+      summary: "Auto-arrange a material or material function's nodes into a readable left-to-right layout (UE built-in). build/build_function already do this unless the spec sets auto_layout:false.",
+      required: ["path"],
+    },
   },
 
   schema: {
@@ -140,6 +144,7 @@ export const materialsTool: CategoryTool = {
     property: z.string().optional().describe("Material output property: BaseColor/Normal/Roughness/Metallic/EmissiveColor/Opacity/AmbientOcclusion/WorldPositionOffset"),
     spec: z.record(z.any()).optional().describe("Full BuildMaterial / BuildMaterialFunction spec — see ArborMaterialGraphTools.h for schema"),
     function_path: z.string().optional().describe("Material Function asset path for query_function (e.g. /Game/Materials/Functions/MF_SDF_Circle)"),
+    path: z.string().optional().describe("Material or Material Function asset path for layout (auto-detects type)"),
   },
 
   actions: {
@@ -327,6 +332,16 @@ export const materialsTool: CategoryTool = {
       if (!p.spec) throw new Error("spec required");
       return callArborJson("ArborMaterialGraphTools", "BuildMaterialFunction", {
         JsonSpec: JSON.stringify(p.spec),
+      });
+    },
+
+    // ---- Graph layout ----
+
+    async layout(p) {
+      const path = (p.path ?? p.material_path ?? p.function_path) as string | undefined;
+      if (!path) throw new Error("path required");
+      return callArborJson("ArborMaterialGraphTools", "LayoutMaterial", {
+        JsonParams: JSON.stringify({ path }),
       });
     },
   },

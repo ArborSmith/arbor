@@ -1191,6 +1191,16 @@ FString UArborMaterialGraphTools::BuildMaterial(const FString& JsonSpec)
 		// UpdateCtx destructor here triggers the recompile.
 	}
 
+	// Auto-arrange nodes (default on) so Arbor-built graphs aren't a pile of
+	// overlapping nodes. Layout only moves nodes - no recompile. Overrides any
+	// manual x/y; pass "auto_layout": false to keep hand-placed positions.
+	bool bAutoLayout = true;
+	Spec->TryGetBoolField(TEXT("auto_layout"), bAutoLayout);
+	if (bAutoLayout)
+	{
+		UMaterialEditingLibrary::LayoutMaterialExpressions(Mat);
+	}
+
 	UEditorAssetLibrary::SaveLoadedAsset(Mat);
 
 	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
@@ -1301,6 +1311,66 @@ namespace
 	{
 		UObject* Asset = UEditorAssetLibrary::LoadAsset(Path);
 		return Cast<UMaterialFunction>(Asset);
+	}
+
+	// UE's UMaterialEditingLibrary::LayoutMaterialFunctionExpressions only positions
+	// FunctionInput nodes when the function has inputs (it walks backward FROM the
+	// inputs, which dead-ends, leaving every other node piled at the origin). Do a
+	// proper layered layout: column = longest backward distance from the FunctionOutput
+	// nodes (output column 0 at the right, inputs furthest left), stacked within columns.
+	void LayoutFunctionGraph(UMaterialFunction* Func)
+	{
+		if (!Func) return;
+		const TArray<TObjectPtr<UMaterialExpression>>& Exprs = GetFunctionExpressions(Func);
+
+		// Roots = FunctionOutput nodes (fallback: everything, if the function has none).
+		TArray<UMaterialExpression*> Roots;
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)
+		{
+			if (E && E->IsA<UMaterialExpressionFunctionOutput>()) Roots.Add(E);
+		}
+		if (Roots.Num() == 0)
+		{
+			for (const TObjectPtr<UMaterialExpression>& E : Exprs) { if (E) Roots.Add(E); }
+		}
+
+		// Longest-path column, walking backward through each node's inputs.
+		TMap<UMaterialExpression*, int32> Column;
+		TArray<TPair<UMaterialExpression*, int32>> Stack;
+		for (UMaterialExpression* R : Roots) Stack.Add(TPair<UMaterialExpression*, int32>(R, 0));
+		while (Stack.Num() > 0)
+		{
+			const TPair<UMaterialExpression*, int32> Cur = Stack.Pop();
+			UMaterialExpression* E = Cur.Key;
+			if (!E) continue;
+			const int32 Col = Cur.Value;
+			if (int32* Existing = Column.Find(E)) { if (*Existing >= Col) continue; }
+			Column.Add(E, Col);
+			const int32 NumInputs = E->CountInputs();
+			for (int32 i = 0; i < NumInputs; ++i)
+			{
+				FExpressionInput* In = E->GetInput(i);
+				if (In && In->Expression) Stack.Add(TPair<UMaterialExpression*, int32>(In->Expression, Col + 1));
+			}
+		}
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)  // disconnected -> column 0
+		{
+			if (E && !Column.Contains(E)) Column.Add(E, 0);
+		}
+
+		// Place: X by column (output right, inputs left); stack vertically per column.
+		static const int32 ColWidth = 300;
+		static const int32 RowPadding = 40;
+		TMap<int32, int32> ColumnY;
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)
+		{
+			if (!E) continue;
+			const int32 Col = Column[E];
+			int32& Y = ColumnY.FindOrAdd(Col);
+			E->MaterialExpressionEditorX = -ColWidth * Col;
+			E->MaterialExpressionEditorY = Y;
+			Y += E->GetHeight() + RowPadding;
+		}
 	}
 
 	UMaterialFunction* LoadOrCreateMaterialFunction(const FString& Path, bool& bOutCreated)
@@ -1631,6 +1701,16 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 	// 5. Finalise: rebuild input/output metadata and propagate to any materials
 	//    referencing this function. Functions do not self-recompile.
 	UMaterialEditingLibrary::UpdateMaterialFunction(Func, nullptr);
+
+	// Auto-arrange nodes (default on). Overrides manual x/y; pass
+	// "auto_layout": false to keep hand-placed positions.
+	bool bAutoLayout = true;
+	Spec->TryGetBoolField(TEXT("auto_layout"), bAutoLayout);
+	if (bAutoLayout)
+	{
+		LayoutFunctionGraph(Func);
+	}
+
 	UEditorAssetLibrary::SaveLoadedAsset(Func);
 
 	TArray<TSharedPtr<FJsonValue>> InputsArr, OutputsArr;
@@ -1643,5 +1723,48 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 	Out->SetArrayField(TEXT("inputs"), InputsArr);
 	Out->SetArrayField(TEXT("outputs"), OutputsArr);
 	if (Unresolved.Num() > 0) Out->SetArrayField(TEXT("unresolved_connections"), Unresolved);
+	return JsonOk(Out);
+}
+
+// ============================================================================
+// LayoutMaterial - auto-arrange a material / material function's nodes
+// ============================================================================
+
+FString UArborMaterialGraphTools::LayoutMaterial(const FString& JsonParams)
+{
+	TSharedPtr<FJsonObject> Params = ParseJson(JsonParams);
+	if (!Params.IsValid()) return JsonError(TEXT("Invalid JSON"));
+
+	FString Path;
+	if (!Params->TryGetStringField(TEXT("path"), Path))
+		Params->TryGetStringField(TEXT("material_path"), Path);
+	if (Path.IsEmpty()) return JsonError(TEXT("path is required"));
+
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(Path);
+	if (!Asset) return JsonError(FString::Printf(TEXT("Asset not found: %s"), *Path));
+
+	const TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
+	Out->SetStringField(TEXT("path"), Path);
+
+	if (UMaterial* Mat = Cast<UMaterial>(Asset))
+	{
+		UMaterialEditingLibrary::LayoutMaterialExpressions(Mat);
+		Mat->MarkPackageDirty();
+		Out->SetStringField(TEXT("type"), TEXT("material"));
+		Out->SetNumberField(TEXT("expression_count"), GetExpressions(Mat).Num());
+	}
+	else if (UMaterialFunction* Func = Cast<UMaterialFunction>(Asset))
+	{
+		LayoutFunctionGraph(Func);
+		Func->MarkPackageDirty();
+		Out->SetStringField(TEXT("type"), TEXT("material_function"));
+		Out->SetNumberField(TEXT("expression_count"), GetFunctionExpressions(Func).Num());
+	}
+	else
+	{
+		return JsonError(FString::Printf(TEXT("Asset is not a Material or MaterialFunction: %s"), *Path));
+	}
+
+	UEditorAssetLibrary::SaveLoadedAsset(Asset);
 	return JsonOk(Out);
 }

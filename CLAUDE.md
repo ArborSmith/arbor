@@ -432,6 +432,10 @@ Then ask the user to look at UE5 and choose. Clean up: `preview.remove_preview_s
 
 Granular material editing lives in `UArborMaterialGraphTools` (MCP `ue5_materials`, or `arbor.materials`). It edits a material's expression graph by stable sentinel IDs stored in each expression's `Desc` field (`__arbor_id:<id>`), surviving save/reload. `build_material(spec)` builds/updates a whole material idempotently in one `FMaterialUpdateContext`.
 
+### Graph layout
+
+`layout(path)` / `arbor.materials.layout_material(path)` auto-arranges a material's or material function's nodes into a readable left-to-right column layout. Auto-detects the asset type, no editor window needed, no recompile (it only moves nodes). Materials use UE's built-in `LayoutMaterialExpressions`; functions use Arbor's own layered layout (`LayoutFunctionGraph`), because UE's `LayoutMaterialFunctionExpressions` only positions input nodes for functions that have inputs and leaves the rest piled at the origin. `build_material` / `build_material_function` run this automatically at the end so Arbor-built graphs open tidy instead of as a pile of overlapping nodes at the origin. On by default; it overrides any manual `x`/`y` in the spec, so pass `"auto_layout": false` to keep hand-placed positions.
+
 ### Material Functions (authoring)
 
 `build_material_function(spec)` / `query_material_function(path)` author a `UMaterialFunction` with the same spec shape as `build_material`, with these differences:
