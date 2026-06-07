@@ -1313,6 +1313,66 @@ namespace
 		return Cast<UMaterialFunction>(Asset);
 	}
 
+	// UE's UMaterialEditingLibrary::LayoutMaterialFunctionExpressions only positions
+	// FunctionInput nodes when the function has inputs (it walks backward FROM the
+	// inputs, which dead-ends, leaving every other node piled at the origin). Do a
+	// proper layered layout: column = longest backward distance from the FunctionOutput
+	// nodes (output column 0 at the right, inputs furthest left), stacked within columns.
+	void LayoutFunctionGraph(UMaterialFunction* Func)
+	{
+		if (!Func) return;
+		const TArray<TObjectPtr<UMaterialExpression>>& Exprs = GetFunctionExpressions(Func);
+
+		// Roots = FunctionOutput nodes (fallback: everything, if the function has none).
+		TArray<UMaterialExpression*> Roots;
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)
+		{
+			if (E && E->IsA<UMaterialExpressionFunctionOutput>()) Roots.Add(E);
+		}
+		if (Roots.Num() == 0)
+		{
+			for (const TObjectPtr<UMaterialExpression>& E : Exprs) { if (E) Roots.Add(E); }
+		}
+
+		// Longest-path column, walking backward through each node's inputs.
+		TMap<UMaterialExpression*, int32> Column;
+		TArray<TPair<UMaterialExpression*, int32>> Stack;
+		for (UMaterialExpression* R : Roots) Stack.Add(TPair<UMaterialExpression*, int32>(R, 0));
+		while (Stack.Num() > 0)
+		{
+			const TPair<UMaterialExpression*, int32> Cur = Stack.Pop();
+			UMaterialExpression* E = Cur.Key;
+			if (!E) continue;
+			const int32 Col = Cur.Value;
+			if (int32* Existing = Column.Find(E)) { if (*Existing >= Col) continue; }
+			Column.Add(E, Col);
+			const int32 NumInputs = E->CountInputs();
+			for (int32 i = 0; i < NumInputs; ++i)
+			{
+				FExpressionInput* In = E->GetInput(i);
+				if (In && In->Expression) Stack.Add(TPair<UMaterialExpression*, int32>(In->Expression, Col + 1));
+			}
+		}
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)  // disconnected -> column 0
+		{
+			if (E && !Column.Contains(E)) Column.Add(E, 0);
+		}
+
+		// Place: X by column (output right, inputs left); stack vertically per column.
+		static const int32 ColWidth = 300;
+		static const int32 RowPadding = 40;
+		TMap<int32, int32> ColumnY;
+		for (const TObjectPtr<UMaterialExpression>& E : Exprs)
+		{
+			if (!E) continue;
+			const int32 Col = Column[E];
+			int32& Y = ColumnY.FindOrAdd(Col);
+			E->MaterialExpressionEditorX = -ColWidth * Col;
+			E->MaterialExpressionEditorY = Y;
+			Y += E->GetHeight() + RowPadding;
+		}
+	}
+
 	UMaterialFunction* LoadOrCreateMaterialFunction(const FString& Path, bool& bOutCreated)
 	{
 		bOutCreated = false;
@@ -1648,7 +1708,7 @@ FString UArborMaterialGraphTools::BuildMaterialFunction(const FString& JsonSpec)
 	Spec->TryGetBoolField(TEXT("auto_layout"), bAutoLayout);
 	if (bAutoLayout)
 	{
-		UMaterialEditingLibrary::LayoutMaterialFunctionExpressions(Func);
+		LayoutFunctionGraph(Func);
 	}
 
 	UEditorAssetLibrary::SaveLoadedAsset(Func);
@@ -1695,7 +1755,7 @@ FString UArborMaterialGraphTools::LayoutMaterial(const FString& JsonParams)
 	}
 	else if (UMaterialFunction* Func = Cast<UMaterialFunction>(Asset))
 	{
-		UMaterialEditingLibrary::LayoutMaterialFunctionExpressions(Func);
+		LayoutFunctionGraph(Func);
 		Func->MarkPackageDirty();
 		Out->SetStringField(TEXT("type"), TEXT("material_function"));
 		Out->SetNumberField(TEXT("expression_count"), GetFunctionExpressions(Func).Num());
