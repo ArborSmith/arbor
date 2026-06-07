@@ -436,6 +436,10 @@ Granular material editing lives in `UArborMaterialGraphTools` (MCP `ue5_material
 
 `layout(path)` / `arbor.materials.layout_material(path)` auto-arranges a material's or material function's nodes into a readable left-to-right column layout. Auto-detects the asset type, no editor window needed, no recompile (it only moves nodes). Materials use UE's built-in `LayoutMaterialExpressions`; functions use Arbor's own layered layout (`LayoutFunctionGraph`), because UE's `LayoutMaterialFunctionExpressions` only positions input nodes for functions that have inputs and leaves the rest piled at the origin. `build_material` / `build_material_function` run this automatically at the end so Arbor-built graphs open tidy instead of as a pile of overlapping nodes at the origin. On by default; it overrides any manual `x`/`y` in the spec, so pass `"auto_layout": false` to keep hand-placed positions.
 
+### Custom HLSL nodes
+
+`MaterialExpressionCustom` is supported by `build_material` / `build_material_function` / `add_expression`. `Code` (an HLSL function body that must `return` the output type), `OutputType` (`CMOT_Float1`..`CMOT_Float4` or `CMOT_MaterialAttributes`), and `Description` are normal `properties`; the named input pins go in a **top-level `custom_inputs`** array on the expression (`[{"name":"UV"},{"name":"Scale"}]`) - each becomes an input pin AND an HLSL variable, wired via the usual `connections`. Sample textures with `Texture2DSample(Tex, TexSampler, uv)` (not `tex2D`/`texture`). Full HLSL scope + GLSL->HLSL cheatsheet: the skill's `references/custom_node_context.md`.
+
 ### Material Functions (authoring)
 
 `build_material_function(spec)` / `query_material_function(path)` author a `UMaterialFunction` with the same spec shape as `build_material`, with these differences:

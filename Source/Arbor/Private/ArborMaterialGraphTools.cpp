@@ -26,6 +26,7 @@
 #include "Materials/MaterialExpressionFunctionInput.h"
 #include "Materials/MaterialExpressionFunctionOutput.h"
 #include "Materials/MaterialExpressionComponentMask.h"
+#include "Materials/MaterialExpressionCustom.h"
 #include "Factories/MaterialFunctionFactoryNew.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialParameters.h"
@@ -407,6 +408,31 @@ namespace
 			}
 		}
 		RunPostPropertyHooks(Expr);
+	}
+
+	// MaterialExpressionCustom's named HLSL input pins live in a TArray<FCustomInput>
+	// that the generic reflection setter can't populate. Read a top-level "custom_inputs"
+	// array ([{ "name": "UV" }, ...]) off the expression spec and rebuild the Inputs list
+	// so each name becomes a connectable pin. Code/OutputType/Description go through normal
+	// properties. No-op for non-Custom expressions or when custom_inputs is absent.
+	void ApplyCustomNodeInputs(UMaterialExpression* Expr, const TSharedPtr<FJsonObject>& Spec)
+	{
+		UMaterialExpressionCustom* Custom = Cast<UMaterialExpressionCustom>(Expr);
+		if (!Custom || !Spec.IsValid()) return;
+		const TArray<TSharedPtr<FJsonValue>>* InputsArr = nullptr;
+		if (!Spec->TryGetArrayField(TEXT("custom_inputs"), InputsArr) || !InputsArr) return;
+
+		Custom->Inputs.Reset();
+		for (const TSharedPtr<FJsonValue>& V : *InputsArr)
+		{
+			const TSharedPtr<FJsonObject> Obj = V->AsObject();
+			if (!Obj.IsValid()) continue;
+			FString Name;
+			Obj->TryGetStringField(TEXT("name"), Name);
+			FCustomInput NewInput;
+			NewInput.InputName = FName(*Name);
+			Custom->Inputs.Add(NewInput);
+		}
 	}
 }
 
@@ -832,6 +858,7 @@ FString UArborMaterialGraphTools::AddMaterialExpression(const FString& ParamsJso
 	{
 		ApplyExpressionProperties(Expr, *PropsObj);
 	}
+	ApplyCustomNodeInputs(Expr, Params);
 
 	Mat->MarkPackageDirty();
 
@@ -1034,6 +1061,7 @@ namespace
 		{
 			ApplyExpressionProperties(Expr, *PropsObj);
 		}
+		ApplyCustomNodeInputs(Expr, ExprSpec);
 		return true;
 	}
 }
@@ -1448,6 +1476,7 @@ namespace
 		{
 			ApplyExpressionProperties(Expr, *PropsObj);
 		}
+		ApplyCustomNodeInputs(Expr, ExprSpec);
 		return true;
 	}
 
