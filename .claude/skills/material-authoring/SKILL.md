@@ -6,8 +6,9 @@ description: Use this skill whenever the user asks for help creating, designing,
   or visual styles. Use this even when the user doesn't say "material"
   explicitly but is clearly describing a surface look ("how would I do wet
   asphalt", "I want a cel-shaded look"). MVP scope: natural-language
-  descriptions only, legacy PBR materials. Image input and shader-code input
-  fall through to a not-yet-implemented response.
+  descriptions only, legacy PBR materials. Image input falls through to a
+  not-yet-implemented response; shader code (GLSL / HLSL / ShaderToy) is
+  translated into a Custom-node material (see "Shader translation").
 ---
 
 # Material authoring workflow
@@ -20,7 +21,7 @@ Arbor conventions you already know are in `Plugins/Arbor/CLAUDE.md` (read once a
 
 - **Natural language description** -> proceed to Step 2
 - **Reference image** -> reply: "image input isn't supported yet in v1; please describe what you want and I'll match against the catalog"
-- **Shader code / ShaderToy URL** -> reply: "shader translation isn't supported yet in v1; let me know what visual effect you want and I'll find the closest catalog entry"
+- **Shader code / ShaderToy URL** -> go to the **Shader translation** section near the end of this skill
 
 ## Step 2: map the description to tags + traits
 
@@ -135,6 +136,23 @@ extract_function.extract("/Game/Assets/Materials/Functions/Procedural/MF_<Name>"
 
 A function has no material-output pins or flags: its inputs are `MaterialExpressionFunctionInput` nodes and its outputs are `MaterialExpressionFunctionOutput` nodes. Use `mat.query_material_function(path)` to inspect an existing one, and `mat.list_expression_types("...")` / `mat.get_expression_class_params("...")` to discover node classes and pin names rather than guessing.
 
+## Shader translation
+
+Turn pasted shader code (GLSL, HLSL, or a ShaderToy URL/snippet) into a working material by wrapping the math in a `MaterialExpressionCustom` node. Read [references/custom_node_context.md](references/custom_node_context.md) (HLSL scope, texture sampling) and [references/glsl_hlsl_mapping.md](references/glsl_hlsl_mapping.md) (syntax table) before writing the `Code`.
+
+1. **Identify the source + entry point.** ShaderToy: `void mainImage(out vec4 fragColor, in vec2 fragCoord)`. Plain GLSL: `void main()`. Pasted `.usf`/HLSL: already close - skip the syntax pass.
+2. **Map inputs to graph nodes** (each becomes a `custom_input`), per [references/shadertoy_inputs.md](references/shadertoy_inputs.md):
+   - normalized UV (`fragCoord/iResolution`) -> a `MaterialExpressionTextureCoordinate` wired to a `UV` input
+   - `iTime` -> a `MaterialExpressionTime` wired to a `Time` input
+   - `iChannel0..3` samplers -> a `MaterialExpressionTextureObjectParameter` per channel wired to a `Tex` input; sample with `Texture2DSample(Tex, TexSampler, uv)`
+   - named uniforms you want artist-tweakable -> `ScalarParameter` / `VectorParameter` inputs; magic numbers stay inline
+3. **GLSL -> HLSL pass** (mechanical, see the table): `vec*`->`float*`, `mix`->`lerp`, `fract`->`frac`, `mod`->`fmod` (mind negatives), `texture(s,uv)`->`Texture2DSample(s,sSampler,uv)`, `gl_FragCoord`->`Parameters.SvPosition`.
+4. **Pick the output.** ShaderToy is unlit -> build an **Unlit** material, route the Custom node to `EmissiveColor`. (Surface shaders that compute normal/roughness can split outputs on a Lit material; default to Unlit.)
+5. **Build it.** One `MaterialExpressionCustom` (`Code` = the translated body returning the right `OutputType`; `custom_inputs` = the named inputs) + the input nodes, wired via `connections`, output -> `EmissiveColor`. Call `arbor.materials.build_material(spec)`.
+6. **Validate.** `query_material(path).compile_errors` must be empty (lit-grey = the HLSL didn't compile - read the error). Render a thumbnail and compare to the source. Time-driven shaders only animate in PIE/Realtime, not in a still.
+
+Keep the Custom node recognisably the original shader; the graph around it is just inputs and the output. Worked example: [shader_translation/examples/plasma.md](shader_translation/examples/plasma.md).
+
 ## Reference files
 
 - [<project>/MaterialCatalog/vocabulary.md](<project>/MaterialCatalog/vocabulary.md) - tag and trait vocabulary
@@ -142,6 +160,9 @@ A function has no material-output pins or flags: its inputs are `MaterialExpress
 - [<project>/MaterialCatalog/README.md](<project>/MaterialCatalog/README.md) - entry shape + how to add new ones
 - [references/pbr_quick.md](references/pbr_quick.md) - PBR defaults cheat sheet
 - [references/shading_models.md](references/shading_models.md) - shading model selection
+- [references/custom_node_context.md](references/custom_node_context.md) - Custom HLSL node scope, texture sampling, limits
+- [references/glsl_hlsl_mapping.md](references/glsl_hlsl_mapping.md) - GLSL -> HLSL syntax table
+- [references/shadertoy_inputs.md](references/shadertoy_inputs.md) - ShaderToy uniform -> UE node mapping
 - [extraction/](extraction/) - extract_material / extract_function / extract_batch / validate_roundtrip scripts for growing the catalog
 
 ## Common mistakes
