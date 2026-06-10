@@ -60,7 +60,10 @@ public class Arbor : ModuleRules
 			"UMG",
 			"UMGEditor",
 			"MovieScene",
-			"MovieSceneTracks"
+			"MovieSceneTracks",
+			"Niagara",
+			"NiagaraCore",
+			"NiagaraEditor"
 		});
 	}
 }
