@@ -1,5 +1,9 @@
 # Arbor
 
+⚠️ Since Unreal has now released an official MCP. This repository wont be maintained or updated anymore. 
+https://www.youtube.com/watch?v=F2cWJFcTft4
+
+
 > **AI-driven gamedev toolkit for Unreal Engine 5.** Lets Claude build levels, blueprints, behavior trees, materials, and more — directly inside the editor.
 
 > ⚠️ **Early stage — not production ready.** Arbor is published as open source so people can try it, learn from it, and contribute. APIs will change, things will break, tools will move between stable/experimental, and there is no support contract. Don't use it on a project where stability matters yet.
