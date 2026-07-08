@@ -857,7 +857,13 @@ FString UArborCodexSearch::CreateCodexEntry(const FString& Category, const FStri
 				}
 
 				TArray<FString> KeysToRemove;
-				PropsJson->Values.GetKeys(KeysToRemove);
+				// UE 5.8 changed FJsonObject key type from FString to FSharedString,
+				// so GetKeys(TArray<FString>&) no longer matches. Build the list by hand;
+				// operator* yields const TCHAR* on both key types.
+				for (const auto& Pair : PropsJson->Values)
+				{
+					KeysToRemove.Add(FString(*Pair.Key));
+				}
 				for (const FString& Key : KeysToRemove)
 				{
 					if (Key == TEXT("LockedFields") || LockedSet.Contains(Key))
@@ -962,7 +968,11 @@ FString UArborCodexSearch::UpdateCodexEntry(const FString& AssetPath, const FStr
 	TArray<FString> SkippedFields;
 	TArray<FString> UpdatedFields;
 	TArray<FString> AllKeys;
-	PropsJson->Values.GetKeys(AllKeys);
+	// UE 5.8 key type change (see note above): build the key list by hand.
+	for (const auto& Pair : PropsJson->Values)
+	{
+		AllKeys.Add(FString(*Pair.Key));
+	}
 
 	for (const FString& Key : AllKeys)
 	{

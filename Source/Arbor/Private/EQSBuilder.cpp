@@ -388,7 +388,7 @@ void UEQSBuilder::ApplyGeneratorParams(
 
 	for (const auto& Pair : ParamsJson->Values)
 	{
-		const FString& Key = Pair.Key;
+		const FString Key = FString(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		// Check if this is a context reference
@@ -576,7 +576,7 @@ void UEQSBuilder::ApplyTestParams(
 	// Process remaining params
 	for (const auto& Pair : ParamsJson->Values)
 	{
-		const FString& Key = Pair.Key;
+		const FString Key = FString(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		// Skip already-handled special keys

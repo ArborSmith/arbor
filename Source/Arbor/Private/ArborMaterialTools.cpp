@@ -352,7 +352,7 @@ FString UArborMaterialTools::CreateMaterialInstance(const FString& ParamsJson)
 	{
 		for (const auto& Pair : (*ParamsObj)->Values)
 		{
-			const FString& ParamName = Pair.Key;
+			const FString ParamName = FString(*Pair.Key);
 			const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 			if (Value->Type == EJson::Number)
