@@ -528,7 +528,7 @@ void UBehaviorTreeBuilder::ApplyParamsToStruct(
 
 	for (const auto& Pair : ParamsJson->Values)
 	{
-		const FString& FieldName = Pair.Key;
+		const FString FieldName = FString(*Pair.Key);
 		const TSharedPtr<FJsonValue>& FieldValue = Pair.Value;
 
 		// Find the property on the struct
@@ -705,7 +705,7 @@ void UBehaviorTreeBuilder::ApplyParameters(
 
 	for (const auto& Pair : ParamsJson->Values)
 	{
-		const FString& Key = Pair.Key;
+		const FString Key = FString(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		// Find the property by name

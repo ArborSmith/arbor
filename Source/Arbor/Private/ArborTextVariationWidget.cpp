@@ -239,7 +239,7 @@ void SArborTextVariationWidget::LoadVariations(const FString& JsonManifest)
 				FString Val;
 				if (Pair.Value->TryGetString(Val))
 				{
-					Entry.Fields.Add(Pair.Key, Val);
+					Entry.Fields.Add(FString(*Pair.Key), Val);
 				}
 			}
 		}

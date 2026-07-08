@@ -763,7 +763,7 @@ void SArborMaterialCatalogWidget::LoadTextureSuggestions()
 	{
 		const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
 		if (!Pair.Value->TryGetArray(Arr) || !Arr) continue;
-		TArray<FString>& Paths = TextureSuggestions.Add(Pair.Key);
+		TArray<FString>& Paths = TextureSuggestions.Add(FString(*Pair.Key));
 		for (const auto& V : *Arr)
 		{
 			const TSharedPtr<FJsonObject> Item = V->AsObject();

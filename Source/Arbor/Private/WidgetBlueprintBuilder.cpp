@@ -270,7 +270,7 @@ void UWidgetBlueprintBuilder::ApplyJsonToProperty(FProperty* Prop, void* ValuePt
 				FProperty* Member = *It;
 				for (const auto& Pair : (*Obj)->Values)
 				{
-					if (Pair.Key.Equals(Member->GetName(), ESearchCase::IgnoreCase))
+					if (FString(*Pair.Key).Equals(Member->GetName(), ESearchCase::IgnoreCase))
 					{
 						ApplyJsonToProperty(Member, Member->ContainerPtrToValuePtr<void>(ValuePtr), Pair.Value);
 						break;
@@ -329,7 +329,7 @@ void UWidgetBlueprintBuilder::ApplyProperties(UObject* Target, const TSharedPtr<
 			// Case-insensitive search fallback
 			for (TFieldIterator<FProperty> It(Target->GetClass()); It; ++It)
 			{
-				if (It->GetName().Equals(Pair.Key, ESearchCase::IgnoreCase)) { Prop = *It; break; }
+				if (It->GetName().Equals(FString(*Pair.Key), ESearchCase::IgnoreCase)) { Prop = *It; break; }
 			}
 		}
 		if (Prop)

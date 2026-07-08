@@ -239,7 +239,7 @@ FString UArborLayoutSolver::ResolveGraph(const FString& GraphJson)
 		if (!NodeObj.IsValid()) continue;
 
 		FGraphNode N;
-		N.Id = Pair.Key;
+		N.Id = FString(*Pair.Key);
 		N.AssetPath = NodeObj->GetStringField(TEXT("asset_path"));
 
 		// Optional transform hints

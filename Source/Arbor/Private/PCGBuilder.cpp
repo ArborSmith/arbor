@@ -434,7 +434,7 @@ void UPCGBuilder::ApplyNodeParams(
 
 	for (const auto& Pair : ParamsJson->Values)
 	{
-		const FString& Key = Pair.Key;
+		const FString Key = FString(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		// Numeric params

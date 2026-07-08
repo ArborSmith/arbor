@@ -860,7 +860,7 @@ void UBlueprintBuilder::ApplyComponentProperties(
 
 	for (const auto& Pair : PropertiesJson->Values)
 	{
-		const FString& Key = Pair.Key;
+		const FString Key = FString(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		// Special handling: SensesConfig on AIPerceptionComponent
@@ -1512,7 +1512,7 @@ void UBlueprintBuilder::ApplyClassDefaults(
 
 	for (const auto& Pair : DefaultsJson->Values)
 	{
-		SetPropertyFromJson(CDO, Pair.Key, Pair.Value);
+		SetPropertyFromJson(CDO, FString(*Pair.Key), Pair.Value);
 	}
 
 	CDO->MarkPackageDirty();
@@ -2730,7 +2730,7 @@ UEdGraphNode* UBlueprintBuilder::CreateGenericNode(
 	{
 		for (const auto& Pair : (*PropertiesJson)->Values)
 		{
-			SetPropertyFromJson(Node, Pair.Key, Pair.Value);
+			SetPropertyFromJson(Node, FString(*Pair.Key), Pair.Value);
 		}
 	}
 

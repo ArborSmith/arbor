@@ -216,7 +216,7 @@ void SArborTextureReviewWidget::LoadImages(const FString& JsonManifest)
 				FString MapPath;
 				if (Pair.Value->TryGetString(MapPath))
 				{
-					Entry.PBRPaths.Add(Pair.Key, MapPath);
+					Entry.PBRPaths.Add(FString(*Pair.Key), MapPath);
 				}
 			}
 		}

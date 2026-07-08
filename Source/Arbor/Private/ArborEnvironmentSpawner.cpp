@@ -73,7 +73,7 @@ FString UArborEnvironmentSpawner::SpawnEnvironment(const FString& ParamsJson)
 
 	for (const auto& Pair : (*NodesObj)->Values)
 	{
-		const FString& NodeId = Pair.Key;
+		const FString NodeId = FString(*Pair.Key);
 		auto NodeObj = Pair.Value->AsObject();
 		if (!NodeObj.IsValid())
 		{

@@ -401,7 +401,7 @@ namespace
 		for (const auto& Pair : Properties->Values)
 		{
 			FString Err;
-			if (!ApplyMaterialProperty(Expr, Pair.Key, Pair.Value, Err))
+			if (!ApplyMaterialProperty(Expr, FString(*Pair.Key), Pair.Value, Err))
 			{
 				UE_LOG(LogTemp, Warning, TEXT("[ArborMaterialGraph] %s.%s: %s"),
 					*Expr->GetClass()->GetName(), *Pair.Key, *Err);
